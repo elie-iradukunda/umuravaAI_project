@@ -20,7 +20,12 @@ import {
   buildJobFormValues,
   type ApplicantFormValues,
 } from "../../lib/form-mappers";
-import { canEditJobSettings, canManageApplicants, canRunScreening } from "../../lib/role-permissions";
+import {
+  canEditJobSettings,
+  canManageApplicants,
+  canRunScreening,
+  canViewJobWorkspace,
+} from "../../lib/role-permissions";
 import { formatDate, formatScore, startCase } from "../../lib/format";
 import { selectCurrentRoleId } from "../../store/auth-slice";
 import {
@@ -61,6 +66,12 @@ const applicantDefaults: ApplicantFormValues = {
   tagsText: "",
 };
 
+const formatTimeline = (
+  startDate: string,
+  endDate?: string,
+  isCurrent?: boolean
+) => `${startDate} - ${isCurrent ? "Present" : endDate || "Present"}`;
+
 export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
   const dispatch = useAppDispatch();
   const currentRoleId = useAppSelector(selectCurrentRoleId);
@@ -75,18 +86,41 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
   } = useAppSelector((state) => state.recruiter);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [selectedApplicantId, setSelectedApplicantId] = useState<string | null>(null);
 
   const applicantForm = useForm<ApplicantFormValues>({
     defaultValues: applicantDefaults,
   });
 
+  const canAccessWorkspace = currentRoleId
+    ? canViewJobWorkspace(currentRoleId)
+    : false;
+
   useEffect(() => {
+    if (!canAccessWorkspace) {
+      return;
+    }
+
     void dispatch(loadJobDetail(jobId));
-  }, [dispatch, jobId]);
+  }, [canAccessWorkspace, dispatch, jobId]);
 
   const job = jobDetail?.job;
   const applicants = jobDetail?.applicants ?? [];
   const screenings = jobDetail?.screenings ?? [];
+  const screeningOverview = jobDetail?.screeningOverview ?? null;
+
+  useEffect(() => {
+    if (applicants.length === 0) {
+      setSelectedApplicantId(null);
+      return;
+    }
+
+    setSelectedApplicantId((current) =>
+      current && applicants.some((applicant) => applicant.id === current)
+        ? current
+        : applicants[0]?.id ?? null
+    );
+  }, [applicants]);
 
   const shortlist = screenings
     .map((screening) => ({
@@ -94,6 +128,10 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
       applicant: applicants.find((candidate) => candidate.id === screening.applicantId),
     }))
     .filter((item) => item.applicant);
+  const selectedApplicant =
+    applicants.find((applicant) => applicant.id === selectedApplicantId) ?? null;
+  const selectedApplicantScreening =
+    shortlist.find((item) => item.applicant?.id === selectedApplicant?.id)?.screening ?? null;
 
   const submitApplicant = applicantForm.handleSubmit(async (values) => {
     await dispatch(
@@ -123,6 +161,25 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
   const canEdit = currentRoleId ? canEditJobSettings(currentRoleId) : false;
   const canAddApplicants = currentRoleId ? canManageApplicants(currentRoleId) : false;
   const canTriggerScreening = currentRoleId ? canRunScreening(currentRoleId) : false;
+
+  if (currentRoleId && !canAccessWorkspace) {
+    return (
+      <div className="panel p-8">
+        <p className="kicker">Restricted Workspace</p>
+        <p className="mt-3 text-2xl font-semibold text-ink">
+          This hiring workspace is only available to job owners.
+        </p>
+        <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+          Admin accounts stay in platform controls, and talent accounts stay in
+          candidate tools. Job briefs, applicants, and shortlist decisions are
+          isolated inside the job-owner dashboard.
+        </p>
+        <Link href="/workspace" className="button-primary mt-6">
+          Back to Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   if (jobDetailStatus === "loading" && !jobDetail) {
     return (
@@ -180,7 +237,7 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
               Shortlisted
             </p>
             <p className="mt-2 text-3xl font-semibold text-ink">
-              {screenings.length}
+              {screeningOverview?.shortlistedCount ?? screenings.length}
             </p>
           </div>
           <div className="rounded-[24px] bg-slate-50 p-5">
@@ -245,7 +302,7 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
             </div>
           )}
 
-          <div className="panel p-6">
+          <div className="panel p-6" id="applicants">
             <div className="flex items-center justify-between">
               <div>
                 <p className="kicker">Applicants</p>
@@ -268,7 +325,12 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
                 </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
                   {applicants.map((applicant) => (
-                    <tr key={applicant.id}>
+                    <tr
+                      key={applicant.id}
+                      className={
+                        selectedApplicantId === applicant.id ? "bg-[#f8fbff]" : undefined
+                      }
+                    >
                       <td>
                         <p className="font-semibold text-ink">{applicant.fullName}</p>
                         {applicant.headline ? (
@@ -286,6 +348,15 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
                         <p className="mt-2 max-w-md text-sm text-slate-600">
                           {applicant.profileSummary}
                         </p>
+                        <button
+                          className="mt-3 inline-flex text-sm font-semibold text-[#2559b8] transition hover:text-[#173d82]"
+                          type="button"
+                          onClick={() => setSelectedApplicantId(applicant.id)}
+                        >
+                          {selectedApplicantId === applicant.id
+                            ? "Viewing details"
+                            : "View details"}
+                        </button>
                         {Object.keys(applicant.socialLinks).length > 0 ? (
                           <div className="mt-3 flex flex-wrap gap-2">
                             {Object.entries(applicant.socialLinks).map(([label, link]) => (
@@ -370,7 +441,7 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
             </div>
           </div>
 
-          <div className="panel p-6">
+          <div className="panel p-6" id="shortlist">
             <div className="flex items-center justify-between">
               <div>
                 <p className="kicker">Shortlist Results</p>
@@ -403,6 +474,52 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
             </div>
 
             <div className="mt-5 grid gap-4">
+              {screeningOverview ? (
+                <div className="rounded-[28px] border border-[#dbe7ff] bg-[#f8fbff] p-5">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="max-w-3xl">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#5c77aa]">
+                        AI Screening Summary
+                      </p>
+                      <p className="mt-3 text-sm leading-6 text-slate-600">
+                        {screeningOverview.overallJobFitSummary}
+                      </p>
+                      <p className="mt-4 text-xs text-slate-500">
+                        Generated {formatDate(screeningOverview.generatedAt)}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-3 rounded-[24px] border border-white bg-white p-4 sm:grid-cols-2 lg:grid-cols-1">
+                      <span className="chip">
+                        {startCase(screeningOverview.provider)} provider
+                      </span>
+                      <span className="chip">
+                        {formatScore(screeningOverview.averageMatchScore)} avg shortlist
+                      </span>
+                      <span className="chip">
+                        {screeningOverview.shortlistedCount} shortlisted
+                      </span>
+                      <span className="chip">
+                        {screeningOverview.rejectedCount} not advanced
+                      </span>
+                    </div>
+                  </div>
+
+                  {screeningOverview.topCandidateSummaries.length > 0 ? (
+                    <div className="mt-5 grid gap-3 lg:grid-cols-3">
+                      {screeningOverview.topCandidateSummaries.map((summary) => (
+                        <div
+                          key={summary}
+                          className="rounded-[22px] border border-[#dbe7ff] bg-white p-4 text-sm leading-6 text-slate-600"
+                        >
+                          {summary}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
               {shortlist.map(({ screening, applicant }) =>
                 applicant ? (
                   <article
@@ -414,10 +531,30 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="chip">Rank #{screening.rank}</span>
                           <span className="chip">{formatScore(screening.matchScore)}</span>
+                          {screening.decision ? (
+                            <span className="chip">
+                              {startCase(screening.decision)}
+                            </span>
+                          ) : null}
+                          {screening.confidence ? (
+                            <span className="chip">
+                              {startCase(screening.confidence)} confidence
+                            </span>
+                          ) : null}
+                          {screening.riskLevel ? (
+                            <span className="chip">
+                              {startCase(screening.riskLevel)} risk
+                            </span>
+                          ) : null}
                         </div>
                         <h4 className="mt-3 text-xl font-semibold text-ink">
                           {applicant.fullName}
                         </h4>
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                          {applicant.email ? <span className="chip">{applicant.email}</span> : null}
+                          {applicant.phone ? <span className="chip">{applicant.phone}</span> : null}
+                          <span className="chip">{applicant.location}</span>
+                        </div>
                         <p className="mt-2 max-w-2xl text-sm text-slate-600">
                           {screening.reasoning.summary}
                         </p>
@@ -471,9 +608,61 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
                       </div>
                     </div>
 
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                      <div className="rounded-[20px] border border-[#dbe7ff] bg-[#f8fbff] p-4">
+                        <p className="text-sm font-semibold text-[#2559b8]">
+                          Matched skills
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {screening.matchedSkills.length > 0 ? (
+                            screening.matchedSkills.map((skill) => (
+                              <span key={`${screening.id}-${skill}`} className="chip">
+                                {skill}
+                              </span>
+                            ))
+                          ) : (
+                            <p className="text-sm text-slate-500">
+                              No direct required-skill matches were captured.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="rounded-[20px] border border-[#ffe1d6] bg-[#fff8f5] p-4">
+                        <p className="text-sm font-semibold text-[#d96633]">
+                          Validate / missing
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {screening.missingSkills.length > 0 ? (
+                            screening.missingSkills.map((skill) => (
+                              <span key={`${screening.id}-missing-${skill}`} className="chip">
+                                {skill}
+                              </span>
+                            ))
+                          ) : (
+                            <p className="text-sm text-slate-500">
+                              No major required-skill gaps were flagged.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
                     <div className="mt-4 rounded-[20px] border border-slate-200 bg-white p-4 text-sm text-slate-700">
                       <span className="font-semibold text-ink">Recommendation:</span>{" "}
                       {screening.reasoning.recommendation}
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button
+                        className="button-secondary"
+                        type="button"
+                        onClick={() => setSelectedApplicantId(applicant.id)}
+                      >
+                        {selectedApplicantId === applicant.id
+                          ? "Viewing applicant"
+                          : "View applicant details"}
+                      </button>
                     </div>
                   </article>
                 ) : null
@@ -495,6 +684,244 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
         </div>
 
         <aside className="grid gap-6 self-start">
+          {selectedApplicant ? (
+            <div className="panel p-6" id="applicant-detail">
+              <div className="flex flex-col gap-3 border-b border-[#e8eef9] pb-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <p className="kicker">Applicant Details</p>
+                    <h3 className="mt-3 text-xl font-semibold text-ink">
+                      {selectedApplicant.fullName}
+                    </h3>
+                    {selectedApplicant.headline ? (
+                      <p className="mt-2 text-sm text-slate-600">
+                        {selectedApplicant.headline}
+                      </p>
+                    ) : null}
+                  </div>
+                  <Link
+                    href="#applicants"
+                    className="button-secondary"
+                  >
+                    Back to Applicant List
+                  </Link>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <span className="chip">{selectedApplicant.location}</span>
+                  {selectedApplicant.email ? (
+                    <span className="chip">{selectedApplicant.email}</span>
+                  ) : null}
+                  {selectedApplicant.phone ? (
+                    <span className="chip">{selectedApplicant.phone}</span>
+                  ) : null}
+                  <span className="chip">
+                    {startCase(selectedApplicant.screeningStatus)}
+                  </span>
+                  {selectedApplicantScreening ? (
+                    <span className="chip">
+                      {formatScore(selectedApplicantScreening.matchScore)}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+
+              <p className="mt-5 text-sm leading-6 text-slate-600">
+                {selectedApplicant.profileSummary}
+              </p>
+
+              {selectedApplicantScreening ? (
+                <div className="mt-5 rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] p-4">
+                  <p className="text-sm font-semibold text-[#2559b8]">
+                    Latest screening signal
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {selectedApplicantScreening.reasoning.summary}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {selectedApplicantScreening.decision ? (
+                      <span className="chip">
+                        {startCase(selectedApplicantScreening.decision)}
+                      </span>
+                    ) : null}
+                    {selectedApplicantScreening.confidence ? (
+                      <span className="chip">
+                        {startCase(selectedApplicantScreening.confidence)} confidence
+                      </span>
+                    ) : null}
+                    {selectedApplicantScreening.riskLevel ? (
+                      <span className="chip">
+                        {startCase(selectedApplicantScreening.riskLevel)} risk
+                      </span>
+                    ) : null}
+                    <Link href="#shortlist" className="chip">
+                      Open shortlist card
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                    Experience
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-ink">
+                    {selectedApplicant.totalExperienceYears} years
+                  </p>
+                </div>
+                <div className="rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                    Availability
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-ink">
+                    {startCase(selectedApplicant.availability.status)}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {startCase(selectedApplicant.availability.type)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <p className="text-sm font-semibold text-ink">Skills</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedApplicant.skills.length > 0 ? (
+                    selectedApplicant.skills.map((skill) => (
+                      <span key={`${selectedApplicant.id}-${skill.name}`} className="chip">
+                        {skill.name}
+                      </span>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">No skills were added yet.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-5">
+                <p className="text-sm font-semibold text-ink">Languages</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedApplicant.languages.length > 0 ? (
+                    selectedApplicant.languages.map((language) => (
+                      <span
+                        key={`${selectedApplicant.id}-${language.name}`}
+                        className="chip"
+                      >
+                        {language.name}
+                      </span>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">
+                      No languages were added yet.
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {selectedApplicant.experience.length > 0 ? (
+                <div className="mt-5">
+                  <p className="text-sm font-semibold text-ink">Experience history</p>
+                  <div className="mt-3 grid gap-3">
+                    {selectedApplicant.experience.map((item, index) => (
+                      <div
+                        key={`${selectedApplicant.id}-experience-${index}`}
+                        className="rounded-[20px] border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <p className="font-semibold text-ink">
+                          {item.role} at {item.company}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {formatTimeline(item.startDate, item.endDate, item.isCurrent)}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                          {item.description}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedApplicant.education.length > 0 ? (
+                <div className="mt-5">
+                  <p className="text-sm font-semibold text-ink">Education</p>
+                  <div className="mt-3 grid gap-3">
+                    {selectedApplicant.education.map((item, index) => (
+                      <div
+                        key={`${selectedApplicant.id}-education-${index}`}
+                        className="rounded-[20px] border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <p className="font-semibold text-ink">
+                          {item.degree} in {item.fieldOfStudy}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {item.institution}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {[item.startYear, item.endYear].filter(Boolean).join(" - ")}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {(selectedApplicant.certifications.length > 0 ||
+                selectedApplicant.projects.length > 0) ? (
+                <div className="mt-5 grid gap-4">
+                  {selectedApplicant.certifications.length > 0 ? (
+                    <div>
+                      <p className="text-sm font-semibold text-ink">Certifications</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {selectedApplicant.certifications.map((item, index) => (
+                          <span
+                            key={`${selectedApplicant.id}-certification-${index}`}
+                            className="chip"
+                          >
+                            {item.name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {selectedApplicant.projects.length > 0 ? (
+                    <div>
+                      <p className="text-sm font-semibold text-ink">Projects</p>
+                      <div className="mt-3 grid gap-3">
+                        {selectedApplicant.projects.map((item, index) => (
+                          <div
+                            key={`${selectedApplicant.id}-project-${index}`}
+                            className="rounded-[20px] border border-slate-200 bg-slate-50 p-4"
+                          >
+                            <p className="font-semibold text-ink">{item.name}</p>
+                            <p className="mt-1 text-sm text-slate-500">{item.role}</p>
+                            <p className="mt-2 text-sm leading-6 text-slate-600">
+                              {item.description}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {selectedApplicant.resumeText ? (
+                <details className="mt-5 rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] p-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-[#2559b8]">
+                    View extracted CV text
+                  </summary>
+                  <div className="mt-3 max-h-[320px] overflow-y-auto rounded-[16px] border border-[#dbe7ff] bg-white p-4">
+                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-600">
+                      {selectedApplicant.resumeText}
+                    </pre>
+                  </div>
+                </details>
+              ) : null}
+            </div>
+          ) : null}
+
           {canAddApplicants ? (
             <>
               <div className="panel p-6">
@@ -723,11 +1150,11 @@ export const JobDetailPage = ({ jobId }: JobDetailPageProps) => {
             <div className="panel p-6">
               <p className="kicker">Review Access</p>
               <h3 className="text-lg font-semibold text-ink">
-                Candidate intake controls are reserved for recruiter-side roles
+                Candidate intake controls are reserved for job owners
               </h3>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                This role can inspect the workspace, shortlist, and candidate
-                signals, but cannot add or upload new applicants directly.
+                Only job owners can add or upload applicants into this hiring
+                workspace.
               </p>
             </div>
           )}

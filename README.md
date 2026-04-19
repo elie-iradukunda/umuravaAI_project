@@ -10,7 +10,8 @@ AI-powered recruitment screening prototype for the Umurava AI Hackathon. The pro
 - Structured applicant intake
 - Bulk applicant ingestion for CSV, Excel, and PDF files
 - Ranked shortlist generation with transparent reasoning
-- Mock screening engine with a Gemini-ready provider boundary
+- Gemini-powered screening with a deterministic mock fallback
+- Gemini-assisted PDF resume extraction for richer candidate profiles
 - Optional MongoDB persistence with an in-memory fallback for fast local demos
 - Demo seed data so the app is usable immediately after setup
 
@@ -20,8 +21,7 @@ AI-powered recruitment screening prototype for the Umurava AI Hackathon. The pro
 - Backend: Node.js, Express, TypeScript
 - Database: MongoDB via Mongoose, with in-memory fallback when `MONGODB_URI` is not set
 - Shared package: TypeScript contracts and demo seed data
-- AI layer for now: deterministic mock scoring engine
-- AI layer later: Gemini provider can plug into the existing screening service
+- AI layer: Gemini for resume extraction and candidate screening, with deterministic mock fallback
 
 ## Workspace structure
 
@@ -93,6 +93,9 @@ npm run dev
 - `FRONTEND_URL`: allowed frontend origin for CORS
 - `MONGODB_URI`: MongoDB connection string; leave empty to use memory storage
 - `SCREENING_PROVIDER`: `mock` or `gemini`
+- `GEMINI_API_KEY`: Google Gemini API key used for CV extraction and AI screening
+- `GEMINI_SCREENING_MODEL`: stable Gemini model for candidate evaluation, default `gemini-2.5-flash`
+- `GEMINI_DOCUMENT_MODEL`: stable Gemini model for PDF CV extraction, default `gemini-2.5-flash`
 - `AUTO_SEED_DEMO`: seeds demo job and applicants when storage is empty
 
 ### Web (`apps/web/.env.local`)
@@ -103,7 +106,7 @@ npm run dev
 
 1. Recruiter creates a job and defines the role, shortlist size, and required skills.
 2. Recruiter adds applicants manually or uploads CSV, Excel, and PDF files.
-3. Backend normalizes applicant data into a shared schema.
+3. Backend normalizes applicant data into a shared schema and uses Gemini document understanding to improve PDF CV extraction when configured.
 4. Screening service scores candidates on:
    - Skills: 40%
    - Experience: 30%
@@ -126,8 +129,8 @@ npm run dev
 ## Architecture notes
 
 - `apps/api/src/services/screening.service.ts` is the core provider boundary.
-- The current implementation uses a deterministic mock scoring engine.
-- When Gemini is ready, replace the mock provider logic inside the screening service with prompt orchestration and structured response parsing.
+- `apps/api/src/services/gemini.service.ts` handles structured Gemini screening and PDF resume extraction.
+- The system now supports production-style Gemini scoring with structured JSON validation and falls back to deterministic mock scoring if a Gemini call fails.
 - `packages/shared` keeps job, applicant, and screening contracts consistent between the backend and frontend.
 
 ## Main API endpoints
@@ -142,21 +145,12 @@ npm run dev
 - `GET /api/jobs/:jobId/screenings`
 - `POST /api/jobs/:jobId/screenings/run`
 
-## Gemini integration plan
-
-The current code intentionally stops short of calling Gemini. To integrate later:
-
-1. Add Gemini API credentials to the API environment.
-2. Replace the mock shortlist generation inside `apps/api/src/services/screening.service.ts`.
-3. Keep the response shape the same so the frontend does not need to change.
-4. Return structured JSON with score breakdown, strengths, gaps, and recommendation.
-
 ## Assumptions and current limitations
 
-- Authentication is not implemented yet.
+- Authentication is implemented for API-backed signup and login, but it is still prototype-level and does not yet include sessions, JWTs, or password reset flows.
 - Spreadsheet mapping is flexible but still based on common column names.
-- PDF ingestion currently extracts raw text and builds a basic applicant profile from it.
-- The mock engine is suitable for prototyping and demos, not final production screening accuracy.
+- PDF CV extraction is much stronger with Gemini, but no OCR or LLM pipeline can honestly guarantee 100% perfect extraction for every scanned, blurry, rotated, or corrupted document.
+- Gemini screening is evidence-based and structured, but recruiter review is still necessary before final hiring decisions.
 - MongoDB becomes active only when `MONGODB_URI` is supplied.
 
 ## Verification completed

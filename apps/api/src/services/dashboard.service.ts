@@ -1,6 +1,8 @@
 import type { DashboardJobSnapshot, DashboardResponse } from "@umurava/shared";
 
+import { env } from "../config/env.js";
 import type { Repository } from "../repositories/types.js";
+import { isGeminiConfigured } from "./gemini.service.js";
 
 export const buildDashboardResponse = async (
   repository: Repository
@@ -29,5 +31,12 @@ export const buildDashboardResponse = async (
   return {
     summary,
     jobs: jobSnapshots,
+    platform: {
+      repository: repository.kind,
+      screeningProvider: env.SCREENING_PROVIDER,
+      aiEnabled:
+        env.SCREENING_PROVIDER === "mock" ? true : isGeminiConfigured(),
+      ingestionChannels: ["Structured Form", "CSV", "Excel", "PDF"],
+    },
   };
 };

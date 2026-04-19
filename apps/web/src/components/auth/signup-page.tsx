@@ -90,9 +90,9 @@ export const SignupPage = () => {
                   Create your account and enter the workspace that fits your role.
                 </h1>
                 <p className="mt-6 text-base leading-8 text-[#e8f0ff]">
-                  Choose talent, recruiter, hiring manager, talent ops, or
-                  platform admin. We will create an API-backed account and take
-                  you into the correct role-aware workspace.
+                  Choose talent, job owner, or admin. We will create an
+                  API-backed account and take you into the correct
+                  role-aware workspace.
                 </p>
               </div>
             </div>
@@ -102,7 +102,7 @@ export const SignupPage = () => {
                 {
                   icon: UserRound,
                   label: "Role selection",
-                  value: "5 workspace personas",
+                  value: "3 workspace personas",
                 },
                 {
                   icon: ShieldCheck,

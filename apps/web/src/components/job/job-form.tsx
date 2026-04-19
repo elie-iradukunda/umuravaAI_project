@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useFieldArray, useForm } from "react-hook-form";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -11,6 +11,7 @@ import {
   buildJobFormValues,
   buildJobPayload,
   sampleJobFormValues,
+  splitCommaValues,
   type JobFormValues,
 } from "../../lib/form-mappers";
 import { canManageJobs } from "../../lib/role-permissions";
@@ -44,9 +45,11 @@ export const JobForm = ({ mode, jobId, initialValues }: JobFormProps) => {
     watch,
     formState: { errors },
   } = form;
+  const [quickSkillText, setQuickSkillText] = useState("");
 
   const summaryValue = watch("summary");
   const idealCandidateValue = watch("idealCandidate");
+  const requiredSkills = watch("requiredSkills");
 
   useEffect(() => {
     if (initialValues) {
@@ -59,6 +62,37 @@ export const JobForm = ({ mode, jobId, initialValues }: JobFormProps) => {
     name: "requiredSkills",
   });
 
+  const appendQuickSkills = () => {
+    const existingSkillNames = new Set(
+      (requiredSkills ?? [])
+        .map((skill) => skill.name.trim().toLowerCase())
+        .filter(Boolean)
+    );
+
+    const newSkillNames = splitCommaValues(quickSkillText).filter((name) => {
+      const normalizedName = name.toLowerCase();
+      if (!normalizedName || existingSkillNames.has(normalizedName)) {
+        return false;
+      }
+
+      existingSkillNames.add(normalizedName);
+      return true;
+    });
+
+    if (newSkillNames.length === 0) {
+      return;
+    }
+
+    newSkillNames.forEach((name) =>
+      append({
+        name,
+        requiredLevel: "intermediate",
+      })
+    );
+
+    setQuickSkillText("");
+  };
+
   const isSubmitting =
     mode === "create"
       ? createJobStatus === "loading"
@@ -70,8 +104,8 @@ export const JobForm = ({ mode, jobId, initialValues }: JobFormProps) => {
         <p className="kicker">Restricted Action</p>
         <h3 className="section-title mt-3">This role cannot create or edit jobs.</h3>
         <p className="section-copy">
-          Recruiters and platform admins can manage hiring briefs. Switch to one
-          of those accounts if you want to change job requirements.
+          Only job owners can manage hiring briefs. Switch to a job-owner
+          account if you want to post or edit job requirements.
         </p>
         <Link href="/workspace" className="button-secondary mt-6">
           Back to Dashboard
@@ -175,7 +209,7 @@ export const JobForm = ({ mode, jobId, initialValues }: JobFormProps) => {
           <div className="mt-2 flex items-center justify-between gap-3 text-xs">
             <span className={errors.summary ? "text-rose-600" : "text-slate-500"}>
               {errors.summary?.message ??
-                "Give recruiters and the screening engine enough context. Minimum 20 characters."}
+                "Give the job owner and screening engine enough context. Minimum 20 characters."}
             </span>
             <span
               className={
@@ -224,40 +258,62 @@ export const JobForm = ({ mode, jobId, initialValues }: JobFormProps) => {
             <div>
               <h3 className="text-lg font-semibold text-ink">Required skills</h3>
               <p className="mt-1 text-sm text-slate-600">
-                Tune the shortlist criteria the scoring engine evaluates most.
+                List the must-have skills. The engine will balance them automatically,
+                so you do not need to manage numeric weights.
               </p>
             </div>
-          <button
-            className="button-secondary"
-            type="button"
-            onClick={() =>
-              append({
+            <button
+              className="button-secondary"
+              type="button"
+              onClick={() =>
+                append({
                   name: "",
                   requiredLevel: "intermediate",
-                  weight: 0.2,
                 })
               }
             >
-            <Plus className="mr-2 h-4 w-4" />
-            Add Skill
-          </button>
-        </div>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Skill
+            </button>
+          </div>
 
-        {mode === "create" ? (
-          <button
-            className="button-secondary mt-4"
-            type="button"
-            onClick={() => reset(sampleJobFormValues())}
-          >
-            Load Demo Job Example
-          </button>
-        ) : null}
+          <div className="mt-4 rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+            <label className="field-label">Quick add skills</label>
+            <p className="mt-2 text-sm text-slate-600">
+              Type several skills separated by commas and we will add them for you.
+            </p>
+            <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+              <input
+                className="input"
+                placeholder="React, TypeScript, API Integration"
+                value={quickSkillText}
+                onChange={(event) => setQuickSkillText(event.target.value)}
+              />
+              <button
+                className="button-secondary"
+                type="button"
+                onClick={appendQuickSkills}
+              >
+                Add List
+              </button>
+            </div>
+          </div>
 
-        <div className="mt-4 grid gap-3">
+          {mode === "create" ? (
+            <button
+              className="button-secondary mt-4"
+              type="button"
+              onClick={() => reset(sampleJobFormValues())}
+            >
+              Load Demo Job Example
+            </button>
+          ) : null}
+
+          <div className="mt-4 grid gap-3">
             {fields.map((field, index) => (
               <div
                 key={field.id}
-                className="grid gap-3 rounded-[24px] border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.6fr_1fr_120px_auto]"
+                className="grid gap-3 rounded-[24px] border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1.8fr_1fr_auto]"
               >
                 <input
                   className="input"
@@ -269,23 +325,13 @@ export const JobForm = ({ mode, jobId, initialValues }: JobFormProps) => {
                 <select
                   className="select"
                   {...register(`requiredSkills.${index}.requiredLevel` as const)}
-                >
-                  {skillLevelOptions.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  {...register(`requiredSkills.${index}.weight` as const, {
-                    valueAsNumber: true,
-                  })}
-                />
+                  >
+                    {skillLevelOptions.map((option) => (
+                      <option key={option} value={option}>
+                        {option.charAt(0).toUpperCase() + option.slice(1)}
+                      </option>
+                    ))}
+                  </select>
                 <button
                   className="button-ghost justify-self-end"
                   type="button"

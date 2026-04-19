@@ -11,7 +11,6 @@ import type {
 type JobFormSkill = {
   name: string;
   requiredLevel: SkillLevel;
-  weight: number;
 };
 
 export type JobFormValues = {
@@ -91,8 +90,7 @@ export const buildJobFormValues = (job?: JobRecord): JobFormValues => ({
     job?.requiredSkills.map((skill) => ({
       name: skill.name,
       requiredLevel: skill.requiredLevel,
-      weight: skill.weight ?? 0.2,
-    })) ?? [{ name: "", requiredLevel: "intermediate", weight: 0.2 }],
+    })) ?? [{ name: "", requiredLevel: "intermediate" }],
 });
 
 export const sampleJobFormValues = (): JobFormValues => ({
@@ -109,11 +107,11 @@ export const sampleJobFormValues = (): JobFormValues => ({
   educationPreferencesText:
     "Business Information Technology, Business Administration, Customer Relations, Communication",
   requiredSkills: [
-    { name: "Customer Support", requiredLevel: "advanced", weight: 0.3 },
-    { name: "Communication", requiredLevel: "expert", weight: 0.25 },
-    { name: "CRM Tools", requiredLevel: "intermediate", weight: 0.2 },
-    { name: "Problem Solving", requiredLevel: "advanced", weight: 0.15 },
-    { name: "Documentation", requiredLevel: "intermediate", weight: 0.1 },
+    { name: "Customer Support", requiredLevel: "advanced" },
+    { name: "Communication", requiredLevel: "expert" },
+    { name: "CRM Tools", requiredLevel: "intermediate" },
+    { name: "Problem Solving", requiredLevel: "advanced" },
+    { name: "Documentation", requiredLevel: "intermediate" },
   ],
 });
 
@@ -133,7 +131,6 @@ export const buildJobPayload = (values: JobFormValues): CreateJobInput => ({
       name: skill.name.trim(),
       requiredLevel: skill.requiredLevel,
       required: true,
-      weight: Number(skill.weight) || undefined,
     })),
 });
 

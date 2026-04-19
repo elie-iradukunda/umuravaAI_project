@@ -11,7 +11,6 @@ import type { DemoUser } from "./demo-users";
 export type TalentSkillFormValue = {
   name: string;
   level: SkillLevel;
-  yearsOfExperience: number;
 };
 
 export type TalentLanguageFormValue = {
@@ -116,10 +115,29 @@ const toNumber = (value: string | number | undefined): number | undefined => {
 const toBoolean = (value: string): boolean =>
   ["true", "yes", "1", "current", "present"].includes(value.trim().toLowerCase());
 
+const defaultSkillYearsByLevel: Record<SkillLevel, number> = {
+  beginner: 0.5,
+  intermediate: 1.5,
+  advanced: 3,
+  expert: 5,
+};
+
+const estimateSkillYearsOfExperience = (
+  totalExperienceYears: number,
+  level: SkillLevel
+): number =>
+  Number(
+    Math.min(
+      totalExperienceYears > 0
+        ? Math.max(totalExperienceYears, 0)
+        : defaultSkillYearsByLevel[level],
+      defaultSkillYearsByLevel[level]
+    ).toFixed(1)
+  );
+
 const blankSkill = (): TalentSkillFormValue => ({
   name: "",
   level: "intermediate",
-  yearsOfExperience: 0,
 });
 
 const blankLanguage = (): TalentLanguageFormValue => ({
@@ -193,7 +211,6 @@ const migrateLegacyDraft = (value: Record<string, unknown>): Partial<TalentProfi
       return {
         name,
         level: level as SkillLevel,
-        yearsOfExperience: Number(years) || 0,
       };
     }),
     languages: splitLineValues(languagesText).map((line) => {
@@ -283,9 +300,9 @@ export const buildTalentProfileDefaults = (
   githubUrl: "",
   portfolioUrl: "https://portfolio.example.com/elie",
   skills: [
-    { name: "Customer Support", level: "advanced", yearsOfExperience: 2 },
-    { name: "Communication", level: "expert", yearsOfExperience: 3 },
-    { name: "CRM Tools", level: "intermediate", yearsOfExperience: 2 },
+    { name: "Customer Support", level: "advanced" },
+    { name: "Communication", level: "expert" },
+    { name: "CRM Tools", level: "intermediate" },
   ],
   languages: [
     { name: "English", proficiency: "fluent" },
@@ -459,7 +476,10 @@ export const buildTalentProfilePayload = (
     .map((item) => ({
       name: item.name.trim(),
       level: item.level,
-      yearsOfExperience: Number(item.yearsOfExperience) || 0,
+      yearsOfExperience: estimateSkillYearsOfExperience(
+        values.totalExperienceYears,
+        item.level
+      ),
     })),
   languages: values.languages
     .filter((item) => item.name.trim())

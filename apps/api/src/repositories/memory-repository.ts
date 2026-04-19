@@ -12,6 +12,7 @@ import type {
 import type { CreateStoredUserInput, Repository } from "./types.js";
 import {
   computeAverageMatchScore,
+  markApplicantAsReady,
   markApplicantAsScreened,
   mergeJobRecord,
   sortByCreatedAtDesc,
@@ -75,6 +76,20 @@ export class MemoryRepository implements Repository {
     });
 
     return created.map((item) => structuredClone(item));
+  }
+
+  async resetJobScreening(jobId: string): Promise<void> {
+    Array.from(this.applicants.values())
+      .filter((item) => item.jobId === jobId)
+      .forEach((item) => {
+        this.applicants.set(item.id, markApplicantAsReady(item));
+      });
+
+    Array.from(this.screenings.values())
+      .filter((item) => item.jobId === jobId)
+      .forEach((item) => {
+        this.screenings.delete(item.id);
+      });
   }
 
   async markApplicantsScreened(jobId: string): Promise<void> {

@@ -25,6 +25,7 @@ export interface Repository {
     jobId: string,
     inputs: CreateApplicantInput[]
   ): Promise<ApplicantRecord[]>;
+  resetJobScreening(jobId: string): Promise<void>;
   markApplicantsScreened(jobId: string): Promise<void>;
   listScreenings(jobId: string): Promise<ScreeningResultRecord[]>;
   replaceScreenings(

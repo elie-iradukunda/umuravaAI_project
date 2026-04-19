@@ -16,8 +16,23 @@ const envSchema = z.object({
     .default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   FRONTEND_URL: z.string().url().default("http://localhost:3000"),
-  MONGODB_URI: z.string().url().optional(),
+  MONGODB_URI: z.preprocess(
+    (value) => {
+      const normalized = String(value ?? "").trim();
+      return normalized || undefined;
+    },
+    z.string().url().optional()
+  ),
   SCREENING_PROVIDER: z.enum(["mock", "gemini"]).default("mock"),
+  GEMINI_API_KEY: z.preprocess(
+    (value) => {
+      const normalized = String(value ?? "").trim();
+      return normalized || undefined;
+    },
+    z.string().trim().min(1).optional()
+  ),
+  GEMINI_SCREENING_MODEL: z.string().trim().min(1).default("gemini-2.5-flash"),
+  GEMINI_DOCUMENT_MODEL: z.string().trim().min(1).default("gemini-2.5-flash"),
   AUTO_SEED_DEMO: z
     .union([z.literal("true"), z.literal("false")])
     .default("true")

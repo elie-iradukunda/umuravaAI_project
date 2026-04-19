@@ -90,7 +90,7 @@ export const TalentApplicationsPage = () => {
             Track every role you already submitted
           </h2>
           <p className="section-copy max-w-3xl">
-            This page shows the actual applications you sent into recruiter job
+            This page shows the actual applications you sent into job-owner
             workspaces, including current status and any screening results.
           </p>
         </div>
@@ -148,6 +148,11 @@ export const TalentApplicationsPage = () => {
                         {formatScore(application.screening.matchScore)}
                       </span>
                     ) : null}
+                    {application.screening?.decision ? (
+                      <span className="chip">
+                        {startCase(application.screening.decision)}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
@@ -166,6 +171,22 @@ export const TalentApplicationsPage = () => {
                           {application.applicant.resumeFileName}
                         </span>
                       </p>
+                    ) : null}
+                    {application.applicant.resumeText ? (
+                      <details className="mt-4 rounded-[18px] border border-[#e5edf9] bg-white p-4">
+                        <summary className="cursor-pointer text-sm font-medium text-[#10213c]">
+                          View extracted CV text
+                        </summary>
+                        <p className="mt-2 text-sm text-slate-500">
+                          This is the CV text stored with your application and
+                          used during AI screening.
+                        </p>
+                        <div className="mt-3 max-h-[360px] overflow-y-auto rounded-[16px] border border-[#dbe7ff] bg-[#f8fbff] p-4">
+                          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-600">
+                            {application.applicant.resumeText}
+                          </pre>
+                        </div>
+                      </details>
                     ) : null}
                     <div className="mt-4 flex flex-wrap gap-2">
                       {application.applicant.skills.slice(0, 5).map((skill) => (
@@ -224,6 +245,22 @@ export const TalentApplicationsPage = () => {
                               </p>
                             </div>
                           </div>
+                          <div className="flex items-start gap-3">
+                            <span className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-[#edf3ff] text-[#2559b8]">
+                              <BadgeCheck className="h-4 w-4" />
+                            </span>
+                            <div>
+                              <p className="text-sm font-medium text-[#10213c]">
+                                Screening signal
+                              </p>
+                              <p className="mt-1 text-sm text-slate-600">
+                                {startCase(application.screening.provider)} provider
+                                {application.screening.riskLevel
+                                  ? `, ${startCase(application.screening.riskLevel)} risk`
+                                  : ""}
+                              </p>
+                            </div>
+                          </div>
                         </>
                       ) : (
                         <div className="flex items-start gap-3">
@@ -232,7 +269,7 @@ export const TalentApplicationsPage = () => {
                           </span>
                           <div>
                             <p className="text-sm font-medium text-[#10213c]">
-                              Waiting for recruiter review
+                              Waiting for job-owner review
                             </p>
                             <p className="mt-1 text-sm text-slate-600">
                               Screening has not been run for this application yet.
@@ -252,6 +289,13 @@ export const TalentApplicationsPage = () => {
                     <p className="mt-2 text-sm leading-6 text-slate-600">
                       {application.screening.reasoning.summary}
                     </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {application.screening.matchedSkills.map((skill) => (
+                        <span key={`${application.applicationId}-${skill}`} className="chip">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
               </article>

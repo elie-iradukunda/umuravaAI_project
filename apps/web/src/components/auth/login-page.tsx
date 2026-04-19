@@ -33,7 +33,7 @@ type LoginFormValues = {
 const platformHighlights = [
   {
     label: "Multi-role workspace",
-    value: "5 dashboards",
+    value: "3 focused dashboards",
     icon: BriefcaseBusiness,
   },
   {
@@ -133,10 +133,9 @@ export const LoginPage = () => {
                 Role-based hiring dashboards that actually feel product-ready.
               </h1>
               <p className="mt-6 max-w-2xl text-base leading-8 text-[#e8f0ff]">
-                Sign in as talent, recruiter, hiring manager, talent ops, or
-                platform admin and move through the exact workspace each role
-                needs, from profile creation and job application to shortlist
-                decisions.
+                Sign in as talent, job owner, or admin and move through the
+                exact workspace each role needs, from profile creation and job
+                application to hiring decisions and platform oversight.
               </p>
             </div>
 
@@ -168,8 +167,8 @@ export const LoginPage = () => {
                   <p className="text-lg font-semibold text-white">What you can demo right now</p>
                   <p className="mt-1 text-sm text-[#dce8ff]">
                     Login, switch users, create jobs, complete a talent profile,
-                    apply to open roles, inspect candidate pipelines, and show
-                    Mongo-backed prototype data live.
+                    apply to open roles, inspect hiring pipelines, and show
+                    admin-ready platform controls live.
                   </p>
                 </div>
               </div>

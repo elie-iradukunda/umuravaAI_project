@@ -9,10 +9,8 @@ import {
   BadgeCheck,
   BriefcaseBusiness,
   BrainCircuit,
-  CheckCircle2,
   FileSpreadsheet,
   Globe2,
-  Radar,
   ShieldCheck,
   Sparkles,
   UsersRound,
@@ -87,19 +85,19 @@ const publicFeatures: FeatureCard[] = [
   {
     title: "AI-ready screening flow",
     description:
-      "The platform is prepared for explainable ranking, shortlist generation, and recruiter-friendly candidate reasoning.",
+      "The platform is prepared for explainable ranking, shortlist generation, and hiring-team-friendly candidate reasoning.",
     icon: BrainCircuit,
   },
   {
     title: "Real-world applicant intake",
     description:
-      "Recruiters can work with structured profiles, CSV or Excel sheets, resume files, and recruiter review workflows.",
+      "Job owners can work with structured profiles, CSV or Excel sheets, resume files, and clear review workflows.",
     icon: FileSpreadsheet,
   },
   {
     title: "Role-based dashboards",
     description:
-      "Talent, recruiters, hiring managers, talent ops, and platform admins each see a workspace designed for their job.",
+      "Talent, job owners, and admins each see a workspace designed for their own responsibilities.",
     icon: UsersRound,
   },
 ];
@@ -113,7 +111,7 @@ const faqItems = [
   {
     question: "Who can create an account from the public site?",
     answer:
-      "Public users can now create accounts for talent, recruiter, hiring manager, talent ops, or platform admin roles from the sign-up flow.",
+      "Public users can now create accounts for talent, job owner, or admin roles from the sign-up flow.",
   },
   {
     question: "What happens after account creation?",
@@ -126,7 +124,7 @@ const processSteps = [
   "Create an account from the public landing page and choose the role you need.",
   "Enter the workspace that matches your selected role and complete the relevant setup.",
   "If you are talent, complete your profile and apply to open opportunities.",
-  "Track application progress while recruiters review and run screening.",
+  "Track application progress while the job owner reviews and runs screening.",
 ];
 
 export const LandingPage = () => {
@@ -207,12 +205,12 @@ export const LandingPage = () => {
     {
       label: "Shortlists generated",
       value: summary ? String(summary.screenedApplicants) : "Explainable",
-      helper: "AI-ready shortlist workflows for recruiter review",
+      helper: "AI-ready shortlist workflows for job-owner review",
     },
     {
       label: "Average match score",
       value: summary ? formatScore(summary.averageMatchScore) : "82",
-      helper: "Recruiter-friendly scoring and reasoning output",
+      helper: "Hiring-team-friendly scoring and reasoning output",
     },
   ];
 
@@ -542,12 +540,12 @@ export const LandingPage = () => {
                   Public users can understand every role before entering the product
                 </h2>
                 <p className="section-copy max-w-3xl">
-                  The product supports candidates, recruiters, hiring managers,
-                  talent operations teams, and platform admins with focused dashboards.
+                  The product supports candidates, job owners, and admins with
+                  clearly separated dashboards and responsibilities.
                 </p>
               </div>
 
-              <div className="mt-6 grid gap-4 lg:grid-cols-2 xl:grid-cols-5">
+              <div className="mt-6 grid gap-4 lg:grid-cols-3">
                 {platformUsers.map((role) => (
                   <article
                     key={role.id}
@@ -556,12 +554,8 @@ export const LandingPage = () => {
                     <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-[#edf3ff] text-[#2559b8]">
                       {role.id === "talent" ? (
                         <UsersRound className="h-5 w-5" />
-                      ) : role.id === "recruiter" ? (
+                      ) : role.id === "job-owner" ? (
                         <BriefcaseBusiness className="h-5 w-5" />
-                      ) : role.id === "hiring-manager" ? (
-                        <CheckCircle2 className="h-5 w-5" />
-                      ) : role.id === "talent-ops" ? (
-                        <Radar className="h-5 w-5" />
                       ) : (
                         <Globe2 className="h-5 w-5" />
                       )}

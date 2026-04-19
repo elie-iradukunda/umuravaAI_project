@@ -32,6 +32,11 @@ const screeningSchema = new Schema(
     matchScore: { type: Number, required: true, min: 0, max: 100 },
     breakdown: { type: breakdownSchema, required: true },
     reasoning: { type: reasoningSchema, required: true },
+    decision: { type: String, trim: true },
+    confidence: { type: String, trim: true },
+    riskLevel: { type: String, trim: true },
+    matchedSkills: { type: [String], default: [] },
+    missingSkills: { type: [String], default: [] },
   },
   { timestamps: true }
 );
