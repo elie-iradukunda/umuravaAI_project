@@ -49,6 +49,8 @@ const SectionHeader = ({
 export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
   const { control, register, setValue, watch } = form;
   const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [quickSkillText, setQuickSkillText] = useState("");
+  const [isResumeTextVisible, setIsResumeTextVisible] = useState(true);
   const [resumeUploadStatus, setResumeUploadStatus] = useState<
     "idle" | "loading" | "succeeded" | "failed"
   >("idle");
@@ -63,6 +65,41 @@ export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
   const uploadedResumeFileName = watch("resumeFileName");
   const uploadedResumeText = watch("resumeText");
   const profileSummary = watch("profileSummary");
+  const currentSkills = watch("skills");
+
+  const appendQuickSkills = () => {
+    const existingSkillNames = new Set(
+      (currentSkills ?? [])
+        .map((skill) => skill.name.trim().toLowerCase())
+        .filter(Boolean)
+    );
+
+    const newSkillNames = quickSkillText
+      .split(/[,;\n]/)
+      .map((item) => item.trim())
+      .filter((item) => {
+        const normalizedName = item.toLowerCase();
+        if (!normalizedName || existingSkillNames.has(normalizedName)) {
+          return false;
+        }
+
+        existingSkillNames.add(normalizedName);
+        return true;
+      });
+
+    if (newSkillNames.length === 0) {
+      return;
+    }
+
+    newSkillNames.forEach((name) =>
+      skills.append({
+        name,
+        level: "intermediate",
+      })
+    );
+
+    setQuickSkillText("");
+  };
 
   const handleResumeUpload = async () => {
     if (!resumeFile) {
@@ -78,6 +115,7 @@ export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
       const result = await api.uploadTalentResume(resumeFile);
       setValue("resumeFileName", result.fileName, { shouldDirty: true });
       setValue("resumeText", result.resumeText, { shouldDirty: true });
+      setIsResumeTextVisible(true);
 
       if (!profileSummary.trim()) {
         setValue("profileSummary", result.summaryExcerpt, { shouldDirty: true });
@@ -97,6 +135,7 @@ export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
     setValue("resumeFileName", "", { shouldDirty: true });
     setValue("resumeText", "", { shouldDirty: true });
     setResumeFile(null);
+    setIsResumeTextVisible(true);
     setResumeUploadError("");
     setResumeUploadStatus("idle");
   };
@@ -107,7 +146,7 @@ export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
         <p className="kicker">Basic Information</p>
         <h3 className="section-title mt-3">Core identity and contact details</h3>
         <p className="section-copy">
-          This matches the talent profile schema basics recruiters expect before
+          This matches the talent profile schema basics job owners expect before
           screening can begin.
         </p>
 
@@ -245,13 +284,32 @@ export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
               </div>
 
               <div className="mt-4 rounded-[18px] border border-[#e5edf9] bg-[#f8fbff] p-4">
-                <p className="text-sm font-medium text-[#10213c]">
-                  Resume preview
-                </p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  {uploadedResumeText.slice(0, 320)}
-                  {uploadedResumeText.length > 320 ? "..." : ""}
-                </p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-[#10213c]">
+                      Extracted CV text
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      This full extracted CV text is what AI screening reads for
+                      resume analysis.
+                    </p>
+                  </div>
+                  <button
+                    className="button-secondary"
+                    type="button"
+                    onClick={() => setIsResumeTextVisible((current) => !current)}
+                  >
+                    {isResumeTextVisible ? "Hide CV text" : "View full CV text"}
+                  </button>
+                </div>
+
+                {isResumeTextVisible ? (
+                  <div className="mt-4 max-h-[420px] overflow-y-auto rounded-[16px] border border-[#dbe7ff] bg-white p-4">
+                    <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-600">
+                      {uploadedResumeText}
+                    </pre>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}
@@ -269,7 +327,7 @@ export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
 
       <section className="panel p-6">
         <p className="kicker">Availability & Links</p>
-        <h3 className="section-title mt-3">Tell recruiters when and how you can work</h3>
+        <h3 className="section-title mt-3">Tell job owners when and how you can work</h3>
 
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <div>
@@ -330,15 +388,36 @@ export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
           <div className="rounded-[26px] border border-[#dbe7ff] bg-[#f8fbff] p-5">
             <SectionHeader
               title="Skills"
-              description="Name, proficiency level, and years of experience."
+              description="Add the skill name and choose your comfort level. We will infer the rest from your overall profile."
               onAdd={() => skills.append(talentProfileFactories.blankSkill())}
               addLabel="Add Skill"
             />
+            <div className="mt-5 rounded-[22px] border border-[#dbe7ff] bg-white p-4">
+              <label className="field-label">Quick add skills</label>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Paste several skills separated by commas and adjust the level only where needed.
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                <input
+                  className="input"
+                  placeholder="Customer Support, Communication, CRM Tools"
+                  value={quickSkillText}
+                  onChange={(event) => setQuickSkillText(event.target.value)}
+                />
+                <button
+                  className="button-secondary"
+                  type="button"
+                  onClick={appendQuickSkills}
+                >
+                  Add List
+                </button>
+              </div>
+            </div>
             <div className="mt-5 grid gap-3">
               {skills.fields.map((field, index) => (
                 <div
                   key={field.id}
-                  className="grid gap-3 rounded-[22px] border border-[#dbe7ff] bg-white p-4 md:grid-cols-[1.6fr_1fr_140px_auto]"
+                  className="grid gap-3 rounded-[22px] border border-[#dbe7ff] bg-white p-4 md:grid-cols-[1.8fr_1fr_auto]"
                 >
                   <input
                     className="input"
@@ -355,16 +434,6 @@ export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
                       </option>
                     ))}
                   </select>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    step={1}
-                    placeholder="Years"
-                    {...register(`skills.${index}.yearsOfExperience` as const, {
-                      valueAsNumber: true,
-                    })}
-                  />
                   <button
                     className="button-ghost justify-self-end"
                     type="button"

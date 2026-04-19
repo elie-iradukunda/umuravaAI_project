@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 
 import { authStorageKey, getPlatformUserDetails } from "../../lib/demo-users";
-import type { PlatformUserId } from "../../lib/platform-users";
 import { canManageJobs } from "../../lib/role-permissions";
 import { signOut, selectAuthState, selectCurrentUser } from "../../store/auth-slice";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
@@ -37,12 +36,16 @@ type NavItem = {
   icon: typeof LayoutDashboard;
 };
 
+type HeaderIconLink = {
+  label: string;
+  href: string;
+  icon: typeof Bell;
+};
+
 const initialsGradient: Record<string, string> = {
   talent: "from-[#8ce6b4] to-[#2fba7f]",
-  recruiter: "from-[#ffd46d] to-[#ff9f43]",
-  "hiring-manager": "from-[#86b7ff] to-[#4f8cff]",
-  "talent-ops": "from-[#7be7c3] to-[#20b486]",
-  "platform-admin": "from-[#c1b8ff] to-[#7d78ff]",
+  "job-owner": "from-[#ffd46d] to-[#ff9f43]",
+  admin: "from-[#c1b8ff] to-[#7d78ff]",
 };
 
 export const ProtectedAppShell = ({
@@ -106,31 +109,25 @@ export const ProtectedAppShell = ({
       ];
     }
 
-    const roleSpecificSecondLabel: Record<PlatformUserId, string> = {
-      talent: "Browse Jobs",
-      recruiter: "Hiring Pipelines",
-      "hiring-manager": "Review Queue",
-      "talent-ops": "Pipeline Health",
-      "platform-admin": "System Status",
-    };
-
-    const roleSpecificThirdLabel: Record<PlatformUserId, string> = {
-      talent: "My Profile",
-      recruiter: "Decision Center",
-      "hiring-manager": "Decision Center",
-      "talent-ops": "Operational Signals",
-      "platform-admin": "Platform Controls",
-    };
+    if (currentUser.roleId === "admin") {
+      return [
+        { label: "Dashboard", href: "/workspace", icon: LayoutDashboard },
+        { label: "System Status", href: "/workspace#system-status", icon: BriefcaseBusiness },
+        { label: "AI Controls", href: "/workspace#ai-readiness", icon: ClipboardCheck },
+        { label: "Insights", href: "/workspace#signals", icon: LineChart },
+        { label: "Settings", href: "/workspace#system-readiness", icon: Settings2 },
+      ];
+    }
 
     return [
       { label: "Dashboard", href: "/workspace", icon: LayoutDashboard },
       {
-        label: roleSpecificSecondLabel[currentUser.roleId],
+        label: "Job Workspace",
         href: "/workspace#pipeline",
         icon: BriefcaseBusiness,
       },
       {
-        label: roleSpecificThirdLabel[currentUser.roleId],
+        label: "AI Shortlists",
         href: "/workspace#decision-center",
         icon: ClipboardCheck,
       },
@@ -144,7 +141,7 @@ export const ProtectedAppShell = ({
       return null;
     }
 
-    if (canManageJobs(currentUser.roleId)) {
+    if (currentUser.roleId === "job-owner" && canManageJobs(currentUser.roleId)) {
       return { label: "Create Job", href: "/jobs/new" };
     }
 
@@ -164,12 +161,84 @@ export const ProtectedAppShell = ({
       };
     }
 
+    if (currentUser.roleId === "admin") {
+      return {
+        title: "Admin Scope",
+        body: "This workspace is limited to system readiness, AI configuration, and platform controls. Hiring data stays inside the job-owner dashboard.",
+        action: { label: "Open System Status", href: "/workspace#system-status" },
+      };
+    }
+
     return {
-      title: "Platform Mode",
-      body: "MongoDB is live, mock screening is active, and the Gemini handoff point is already prepared.",
+      title: "Hiring Workspace",
+      body: "Post roles, review applicants, run AI screening, and move from intake to shortlist decisions without exposing hiring controls to other roles.",
       action: primaryAction,
     };
   }, [currentUser, primaryAction]);
+
+  const headerIconLinks = useMemo<HeaderIconLink[]>(() => {
+    if (!currentUser) {
+      return [];
+    }
+
+    if (currentUser.roleId === "talent") {
+      return [
+        {
+          label: "Notifications",
+          href: "/workspace#notifications",
+          icon: Bell,
+        },
+        {
+          label: "AI Suggestions",
+          href: "/workspace#suggestions",
+          icon: Sparkles,
+        },
+        {
+          label: "My Profile",
+          href: "/talent/profile",
+          icon: UsersRound,
+        },
+      ];
+    }
+
+    if (currentUser.roleId === "admin") {
+      return [
+        {
+          label: "System Alerts",
+          href: "/workspace#system-status",
+          icon: Bell,
+        },
+        {
+          label: "AI Controls",
+          href: "/workspace#ai-readiness",
+          icon: Sparkles,
+        },
+        {
+          label: "Active Role",
+          href: `${pathname}#active-role`,
+          icon: UsersRound,
+        },
+      ];
+    }
+
+    return [
+      {
+        label: "Notifications",
+        href: "/workspace#pipeline",
+        icon: Bell,
+      },
+      {
+        label: "AI Decision Center",
+        href: "/workspace#decision-center",
+        icon: Sparkles,
+      },
+      {
+        label: "Active Role",
+        href: `${pathname}#active-role`,
+        icon: UsersRound,
+      },
+    ];
+  }, [currentUser, pathname]);
 
   const handleLogout = () => {
     if (typeof window !== "undefined") {
@@ -196,7 +265,7 @@ export const ProtectedAppShell = ({
   }
 
   return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[292px_minmax(0,1fr)]">
+    <div className="min-h-screen">
       <div
         className={clsx(
           "fixed inset-0 z-30 bg-[#071328]/45 transition lg:hidden",
@@ -207,11 +276,11 @@ export const ProtectedAppShell = ({
 
       <div
         className={clsx(
-          "fixed inset-y-0 left-0 z-40 w-[292px] transition duration-300 lg:static lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 w-[292px] transition duration-300 lg:translate-x-0",
           mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
         )}
       >
-        <aside className="flex h-full flex-col overflow-hidden bg-gradient-to-b from-[#0b2a67] via-[#103f92] to-[#081f4d] px-5 py-6 text-white shadow-[0_28px_70px_rgba(9,34,86,0.35)]">
+        <aside className="flex h-full flex-col overflow-y-auto bg-gradient-to-b from-[#0b2a67] via-[#103f92] to-[#081f4d] px-5 py-6 text-white shadow-[0_28px_70px_rgba(9,34,86,0.35)]">
           <div>
             <Link href="/workspace" className="flex items-center gap-3">
               <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.15] text-base font-semibold text-white ring-1 ring-white/[0.15]">
@@ -326,8 +395,8 @@ export const ProtectedAppShell = ({
         </aside>
       </div>
 
-      <main className="min-w-0 px-4 py-4 sm:px-6 lg:px-8">
-        <header className="rounded-[32px] border border-white/80 bg-white px-5 py-5 shadow-panel sm:px-6 lg:px-7">
+      <main className="min-w-0 px-4 py-4 pb-8 sm:px-6 lg:ml-[292px] lg:px-8">
+        <header className="sticky top-4 z-20 mx-auto max-w-7xl rounded-[32px] border border-white/80 bg-white/95 px-5 py-5 shadow-panel backdrop-blur sm:px-6 lg:px-7">
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.95fr)] xl:items-center">
             <div className="flex items-start gap-4">
               <button
@@ -349,17 +418,27 @@ export const ProtectedAppShell = ({
               </div>
             </div>
 
-            <div className="rounded-[28px] border border-[#d9e6ff] bg-[#f8fbff] p-4">
+            <div
+              className="rounded-[28px] border border-[#d9e6ff] bg-[#f8fbff] p-4"
+              id="active-role"
+            >
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  {[Bell, Sparkles, UsersRound].map((Icon, index) => (
-                    <span
-                      key={index}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d7e4fb] bg-white text-[#2559b8]"
-                    >
-                      <Icon className="h-4 w-4" />
-                    </span>
-                  ))}
+                  {headerIconLinks.map((item) => {
+                    const Icon = item.icon;
+
+                    return (
+                      <Link
+                        key={item.label}
+                        href={item.href}
+                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d7e4fb] bg-white text-[#2559b8]"
+                        aria-label={item.label}
+                        title={item.label}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </Link>
+                    );
+                  })}
                 </div>
 
                 <div className="rounded-[22px] border border-[#d7e4fb] bg-white px-4 py-3">

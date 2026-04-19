@@ -5,10 +5,12 @@ import type {
   CreateApplicantInput,
   CreateJobInput,
   JobRecord,
+  UserRole,
   ScreeningResultRecord,
   StoredUserRecord,
   UpdateJobInput,
 } from "@umurava/shared";
+import { normalizeUserRole } from "@umurava/shared";
 
 export const nowIso = () => new Date().toISOString();
 
@@ -85,7 +87,7 @@ export const withUserRecord = (
     name: input.name.trim(),
     email: input.email.trim().toLowerCase(),
     passwordHash: input.passwordHash,
-    roleId: input.roleId,
+    roleId: normalizeUserRole(input.roleId) as UserRole,
     location: input.location.trim(),
     createdAt: timestamp,
     updatedAt: overrides.updatedAt ?? timestamp,
@@ -97,6 +99,14 @@ export const markApplicantAsScreened = (
 ): ApplicantRecord => ({
   ...applicant,
   screeningStatus: "screened",
+  updatedAt: nowIso(),
+});
+
+export const markApplicantAsReady = (
+  applicant: ApplicantRecord
+): ApplicantRecord => ({
+  ...applicant,
+  screeningStatus: "ready",
   updatedAt: nowIso(),
 });
 

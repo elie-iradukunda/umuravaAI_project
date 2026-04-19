@@ -36,11 +36,28 @@ export const availabilityTypeSchema = z.enum([
 
 export const userRoleSchema = z.enum([
   "talent",
-  "recruiter",
-  "hiring-manager",
-  "talent-ops",
-  "platform-admin",
+  "job-owner",
+  "admin",
 ]);
+
+const legacyRoleMap = {
+  recruiter: "job-owner",
+  "hiring-manager": "admin",
+  "talent-ops": "admin",
+  "platform-admin": "admin",
+} as const;
+
+export const normalizeUserRole = (
+  roleId: string | null | undefined
+): z.infer<typeof userRoleSchema> => {
+  if (typeof roleId === "string" && roleId in legacyRoleMap) {
+    return legacyRoleMap[roleId as keyof typeof legacyRoleMap];
+  }
+
+  return userRoleSchema.safeParse(roleId).success
+    ? (roleId as z.infer<typeof userRoleSchema>)
+    : "talent";
+};
 
 export const applicantSourceSchema = z.enum([
   "platform",
@@ -52,6 +69,14 @@ export const applicantSourceSchema = z.enum([
 ]);
 
 export const screeningProviderSchema = z.enum(["mock", "gemini"]);
+export const screeningDecisionSchema = z.enum([
+  "strong-shortlist",
+  "shortlist",
+  "hold",
+  "reject",
+]);
+export const screeningConfidenceSchema = z.enum(["high", "medium", "low"]);
+export const screeningRiskLevelSchema = z.enum(["low", "medium", "high"]);
 
 export const screeningStatusSchema = z.enum([
   "draft",
@@ -219,7 +244,23 @@ export const screeningResultRecordSchema = z.object({
   matchScore: z.number().min(0).max(100),
   breakdown: screeningBreakdownSchema,
   reasoning: candidateReasoningSchema,
+  decision: screeningDecisionSchema.optional(),
+  confidence: screeningConfidenceSchema.optional(),
+  riskLevel: screeningRiskLevelSchema.optional(),
+  matchedSkills: z.array(z.string().trim().min(1)).default([]),
+  missingSkills: z.array(z.string().trim().min(1)).default([]),
   createdAt: z.string().trim().min(1),
+});
+
+export const screeningOverviewSchema = z.object({
+  generatedAt: z.string().trim().min(1),
+  provider: screeningProviderSchema,
+  totalApplicants: z.number().int().min(0),
+  shortlistedCount: z.number().int().min(0),
+  rejectedCount: z.number().int().min(0),
+  averageMatchScore: z.number().min(0).max(100),
+  overallJobFitSummary: z.string().trim().min(10),
+  topCandidateSummaries: z.array(z.string().trim().min(1)).default([]),
 });
 
 export const dashboardSummarySchema = z.object({
@@ -227,6 +268,13 @@ export const dashboardSummarySchema = z.object({
   totalApplicants: z.number().int().min(0),
   screenedApplicants: z.number().int().min(0),
   averageMatchScore: z.number().min(0).max(100),
+});
+
+export const platformStatusSchema = z.object({
+  repository: z.enum(["memory", "mongo"]),
+  screeningProvider: screeningProviderSchema,
+  aiEnabled: z.boolean(),
+  ingestionChannels: z.array(z.string().trim().min(1)).default([]),
 });
 
 export const dashboardJobSnapshotSchema = z.object({
@@ -239,12 +287,22 @@ export const dashboardJobSnapshotSchema = z.object({
 export const dashboardResponseSchema = z.object({
   summary: dashboardSummarySchema,
   jobs: z.array(dashboardJobSnapshotSchema),
+  platform: platformStatusSchema,
+});
+
+export const publicJobsResponseSchema = z.object({
+  jobs: z.array(jobRecordSchema),
+});
+
+export const publicJobResponseSchema = z.object({
+  job: jobRecordSchema,
 });
 
 export const jobDetailResponseSchema = z.object({
   job: jobRecordSchema,
   applicants: z.array(applicantRecordSchema),
   screenings: z.array(screeningResultRecordSchema),
+  screeningOverview: screeningOverviewSchema.nullable(),
 });
 
 export const talentApplicationRecordSchema = z.object({
@@ -271,6 +329,9 @@ export type AvailabilityType = z.infer<typeof availabilityTypeSchema>;
 export type UserRole = z.infer<typeof userRoleSchema>;
 export type ApplicantSource = z.infer<typeof applicantSourceSchema>;
 export type ScreeningProvider = z.infer<typeof screeningProviderSchema>;
+export type ScreeningDecision = z.infer<typeof screeningDecisionSchema>;
+export type ScreeningConfidence = z.infer<typeof screeningConfidenceSchema>;
+export type ScreeningRiskLevel = z.infer<typeof screeningRiskLevelSchema>;
 export type ScreeningStatus = z.infer<typeof screeningStatusSchema>;
 export type JobSkill = z.infer<typeof jobSkillSchema>;
 export type EducationRecord = z.infer<typeof educationSchema>;
@@ -287,6 +348,7 @@ export type UpdateJobInput = z.infer<typeof updateJobInputSchema>;
 export type CreateApplicantInput = z.infer<typeof createApplicantInputSchema>;
 export type ScreeningBreakdown = z.infer<typeof screeningBreakdownSchema>;
 export type CandidateReasoning = z.infer<typeof candidateReasoningSchema>;
+export type ScreeningOverview = z.infer<typeof screeningOverviewSchema>;
 export type AuthUser = z.infer<typeof authUserSchema>;
 export type StoredUserRecord = z.infer<typeof storedUserRecordSchema>;
 export type JobRecord = z.infer<typeof jobRecordSchema>;
@@ -295,8 +357,11 @@ export type ScreeningResultRecord = z.infer<
   typeof screeningResultRecordSchema
 >;
 export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;
+export type PlatformStatus = z.infer<typeof platformStatusSchema>;
 export type DashboardJobSnapshot = z.infer<typeof dashboardJobSnapshotSchema>;
 export type DashboardResponse = z.infer<typeof dashboardResponseSchema>;
+export type PublicJobsResponse = z.infer<typeof publicJobsResponseSchema>;
+export type PublicJobResponse = z.infer<typeof publicJobResponseSchema>;
 export type JobDetailResponse = z.infer<typeof jobDetailResponseSchema>;
 export type TalentApplicationRecord = z.infer<
   typeof talentApplicationRecordSchema

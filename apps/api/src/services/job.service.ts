@@ -1,6 +1,7 @@
 import type { JobDetailResponse } from "@umurava/shared";
 
 import type { Repository } from "../repositories/types.js";
+import { buildScreeningOverview } from "./screening.service.js";
 
 export const getJobDetail = async (
   repository: Repository,
@@ -21,5 +22,6 @@ export const getJobDetail = async (
     job,
     applicants,
     screenings,
+    screeningOverview: buildScreeningOverview(job, applicants, screenings),
   };
 };

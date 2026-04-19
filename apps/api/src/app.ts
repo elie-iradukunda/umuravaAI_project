@@ -7,6 +7,8 @@ import {
   createJobInputSchema,
   loginInputSchema,
   updateJobInputSchema,
+  type ApplicantRecord,
+  type CreateApplicantInput,
 } from "@umurava/shared";
 import { ZodError } from "zod";
 
@@ -31,6 +33,37 @@ const upload = multer({
   },
 });
 
+const normalizeEmail = (value: string): string => value.trim().toLowerCase();
+
+const getDuplicateApplicantEmails = (
+  existingApplicants: ApplicantRecord[],
+  incomingApplicants: CreateApplicantInput[]
+): string[] => {
+  const existingEmails = new Set(
+    existingApplicants
+      .map((applicant) => normalizeEmail(applicant.email ?? ""))
+      .filter(Boolean)
+  );
+  const seenIncomingEmails = new Set<string>();
+  const duplicates = new Set<string>();
+
+  incomingApplicants.forEach((applicant) => {
+    const email = normalizeEmail(applicant.email ?? "");
+    if (!email) {
+      return;
+    }
+
+    if (existingEmails.has(email) || seenIncomingEmails.has(email)) {
+      duplicates.add(email);
+      return;
+    }
+
+    seenIncomingEmails.add(email);
+  });
+
+  return [...duplicates];
+};
+
 export const createApp = (repository: Repository) => {
   const app = express();
 
@@ -48,6 +81,32 @@ export const createApp = (repository: Repository) => {
       repository: repository.kind,
       provider: env.SCREENING_PROVIDER,
     });
+  });
+
+  app.get("/api/public/jobs", async (_request, response, next) => {
+    try {
+      response.json({
+        jobs: await repository.listJobs(),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/public/jobs/:jobId", async (request, response, next) => {
+    try {
+      const jobId = String(request.params.jobId);
+      const job = await repository.getJob(jobId);
+
+      if (!job) {
+        response.status(404).json({ message: "Job not found." });
+        return;
+      }
+
+      response.json({ job });
+    } catch (error) {
+      next(error);
+    }
   });
 
   app.post("/api/auth/signup", async (request, response, next) => {
@@ -168,6 +227,8 @@ export const createApp = (repository: Repository) => {
         return;
       }
 
+      await repository.resetJobScreening(jobId);
+
       response.json({ job });
     } catch (error) {
       next(error);
@@ -192,8 +253,26 @@ export const createApp = (repository: Repository) => {
       const applicants = payload.map((item) =>
         createApplicantInputSchema.parse(item)
       );
+      const existingApplicants = await repository.listApplicants(jobId);
+      const duplicateEmails = getDuplicateApplicantEmails(
+        existingApplicants,
+        applicants
+      );
+
+      if (duplicateEmails.length > 0) {
+        response.status(409).json({
+          message: `Applicants with these email addresses already exist for this job: ${duplicateEmails.join(
+            ", "
+          )}.`,
+        });
+        return;
+      }
 
       const created = await repository.createApplicants(jobId, applicants);
+
+      if (created.length > 0) {
+        await repository.resetJobScreening(jobId);
+      }
 
       response.status(201).json({
         applicants: created,
@@ -215,7 +294,27 @@ export const createApp = (repository: Repository) => {
         const validatedApplicants = parsed.applicants.map((item) =>
           createApplicantInputSchema.parse(item)
         );
+        const existingApplicants = await repository.listApplicants(jobId);
+        const duplicateEmails = getDuplicateApplicantEmails(
+          existingApplicants,
+          validatedApplicants
+        );
+
+        if (duplicateEmails.length > 0) {
+          response.status(409).json({
+            message: `Applicants with these email addresses already exist for this job: ${duplicateEmails.join(
+              ", "
+            )}.`,
+            warnings: parsed.warnings,
+          });
+          return;
+        }
+
         const applicants = await repository.createApplicants(jobId, validatedApplicants);
+
+        if (applicants.length > 0) {
+          await repository.resetJobScreening(jobId);
+        }
 
         response.status(201).json({
           applicants,

@@ -71,7 +71,7 @@ export const TalentProfilePage = () => {
         <div className="panel p-6">
           <p className="kicker">Talent Profile</p>
           <h2 className="section-title mt-3">
-            Fill the structured profile recruiters will screen against
+            Fill the structured profile job owners will screen against
           </h2>
           <p className="section-copy max-w-3xl">
             Save your profile first, then reuse the same structured information
@@ -117,7 +117,7 @@ export const TalentProfilePage = () => {
             {completion}%
           </p>
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            Aim for a high-completeness profile before applying so recruiters get
+            Aim for a high-completeness profile before applying so job owners get
             enough signal for ranking and explainability.
           </p>
         </div>

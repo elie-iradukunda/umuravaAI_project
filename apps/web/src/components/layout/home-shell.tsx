@@ -18,35 +18,23 @@ const roleCopy = {
       "Find jobs, track your applications, update your profile, and follow simple application steps from one candidate workspace.",
     accent: "Candidate Home",
   },
-  recruiter: {
-    pageTitle: "Recruiter Dashboard",
+  "job-owner": {
+    pageTitle: "Job Owner Dashboard",
     pageDescription:
-      "Create jobs, review applicants, run screening, and manage shortlists with clear recruiter-facing actions.",
-    accent: "Recruiter Home",
+      "Post jobs, review applicants, run AI screening, and manage shortlists from one hiring workspace.",
+    accent: "Hiring Workspace",
   },
-  "hiring-manager": {
-    pageTitle: "Hiring Manager Dashboard",
+  admin: {
+    pageTitle: "Admin Dashboard",
     pageDescription:
-      "Review shortlisted candidates, compare fit quickly, and focus only on decisions needed from the hiring manager.",
-    accent: "Hiring Review",
-  },
-  "talent-ops": {
-    pageTitle: "Talent Operations Dashboard",
-    pageDescription:
-      "Monitor pipeline health, spot weak funnels, and keep teams moving with clear operational signals.",
-    accent: "Operations View",
-  },
-  "platform-admin": {
-    pageTitle: "Platform Admin Dashboard",
-    pageDescription:
-      "Watch system readiness, ingestion status, and platform controls with simple admin-focused information.",
+      "Monitor system readiness, AI configuration, and platform controls without entering hiring workspaces.",
     accent: "Platform Control",
   },
 } as const;
 
 export const HomeShell = ({ children }: HomeShellProps) => {
   const currentUser = useAppSelector(selectCurrentUser);
-  const fallback = getPlatformUserDetails("recruiter");
+  const fallback = getPlatformUserDetails("job-owner");
   const roleId = currentUser?.roleId ?? fallback.id;
   const copy = roleCopy[roleId];
 

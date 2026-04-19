@@ -1,4 +1,4 @@
-import type { AuthUser } from "@umurava/shared";
+import { normalizeUserRole, type AuthUser } from "@umurava/shared";
 
 import { platformUsers, type PlatformUserId } from "./platform-users";
 
@@ -14,20 +14,27 @@ export type DemoUser = {
   status: string;
 };
 
+type StoredUserLike = Omit<DemoUser, "roleId" | "team" | "status" | "initials"> & {
+  roleId: string;
+  team?: string;
+  status?: string;
+  initials?: string;
+};
+
 export const authStorageKey = "umurava-demo-session";
 export const localUsersStorageKey = "umurava-local-users";
 
 export const demoUsers: DemoUser[] = [
   {
-    id: "user_recruiter_nadia",
+    id: "user_job_owner_nadia",
     name: "Nadia Uwase",
-    email: "recruiter@umurava.ai",
-    password: "Recruiter123!",
-    roleId: "recruiter",
-    team: "Talent Acquisition",
+    email: "jobowner@umurava.ai",
+    password: "JobOwner123!",
+    roleId: "job-owner",
+    team: "Hiring Leadership",
     location: "Kigali, Rwanda",
     initials: "NU",
-    status: "Actively screening for 4 open roles",
+    status: "Managing live roles and AI shortlist decisions",
   },
   {
     id: "user_talent_elie",
@@ -38,40 +45,18 @@ export const demoUsers: DemoUser[] = [
     team: "Candidate Workspace",
     location: "Kigali, Rwanda",
     initials: "EN",
-    status: "Preparing a structured profile and applying to open roles",
-  },
-  {
-    id: "user_manager_daniel",
-    name: "Daniel Mugisha",
-    email: "manager@umurava.ai",
-    password: "Manager123!",
-    roleId: "hiring-manager",
-    team: "Product Engineering",
-    location: "Kampala, Uganda",
-    initials: "DM",
-    status: "Reviewing shortlist quality and interview readiness",
-  },
-  {
-    id: "user_ops_keza",
-    name: "Keza Iradukunda",
-    email: "ops@umurava.ai",
-    password: "TalentOps123!",
-    roleId: "talent-ops",
-    team: "Talent Operations",
-    location: "Remote",
-    initials: "KI",
-    status: "Monitoring funnel health across teams",
+    status: "Keeping a profile ready and applying to open jobs",
   },
   {
     id: "user_admin_sonia",
     name: "Sonia Aline",
     email: "admin@umurava.ai",
     password: "Admin123!",
-    roleId: "platform-admin",
-    team: "HR Systems",
+    roleId: "admin",
+    team: "Platform Operations",
     location: "Kigali, Rwanda",
     initials: "SA",
-    status: "Maintaining rollout readiness and platform controls",
+    status: "Monitoring AI readiness and platform controls",
   },
 ];
 
@@ -88,18 +73,30 @@ const makeInitials = (name: string) =>
 
 const roleTeams: Record<PlatformUserId, string> = {
   talent: "Candidate Workspace",
-  recruiter: "Talent Acquisition",
-  "hiring-manager": "Hiring Team",
-  "talent-ops": "Talent Operations",
-  "platform-admin": "Platform Operations",
+  "job-owner": "Hiring Leadership",
+  admin: "Platform Operations",
 };
 
 const roleStatuses: Record<PlatformUserId, string> = {
-  talent: "Account ready to complete profile and apply to roles",
-  recruiter: "Account ready to create jobs and manage applicants",
-  "hiring-manager": "Account ready to review shortlisted candidates",
-  "talent-ops": "Account ready to monitor pipeline health",
-  "platform-admin": "Account ready to manage platform readiness",
+  talent: "Account ready to complete a profile and apply to roles",
+  "job-owner": "Account ready to post jobs and manage applicants",
+  admin: "Account ready to monitor platform controls and AI readiness",
+};
+
+const normalizeStoredUser = (user: StoredUserLike): DemoUser => {
+  const roleId = normalizeUserRole(user.roleId);
+
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email.trim().toLowerCase(),
+    password: user.password,
+    roleId,
+    team: roleTeams[roleId],
+    location: user.location,
+    initials: user.initials?.trim() || makeInitials(user.name),
+    status: roleStatuses[roleId],
+  };
 };
 
 export const getLocalUsers = (): DemoUser[] => {
@@ -114,7 +111,9 @@ export const getLocalUsers = (): DemoUser[] => {
     }
 
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as DemoUser[]) : [];
+    return Array.isArray(parsed)
+      ? parsed.map((user) => normalizeStoredUser(user as StoredUserLike))
+      : [];
   } catch {
     return [];
   }
@@ -131,15 +130,16 @@ export const getUserByEmail = (email: string) =>
   ) ?? null;
 
 export const cacheAuthenticatedUser = (user: AuthUser): DemoUser => {
+  const roleId = normalizeUserRole(user.roleId);
   const cachedUser: DemoUser = {
     id: user.id,
     name: user.name,
     email: user.email.trim().toLowerCase(),
-    roleId: user.roleId,
-    team: roleTeams[user.roleId],
+    roleId,
+    team: roleTeams[roleId],
     location: user.location,
     initials: makeInitials(user.name),
-    status: roleStatuses[user.roleId],
+    status: roleStatuses[roleId],
   };
 
   if (!isBrowser()) {
@@ -181,10 +181,10 @@ export const createLocalTalentUser = (input: {
     email: input.email.trim().toLowerCase(),
     password: input.password,
     roleId: "talent",
-    team: "Candidate Workspace",
+    team: roleTeams.talent,
     location: input.location.trim(),
     initials: makeInitials(input.name),
-    status: "New talent account ready to complete profile and apply",
+    status: "New talent account ready to complete a profile and apply",
   };
 
   const localUsers = getLocalUsers();
@@ -197,6 +197,8 @@ export const createLocalTalentUser = (input: {
 };
 
 export const getPlatformUserDetails = (roleId: PlatformUserId) =>
-  platformUsers.find((role) => role.id === roleId) ?? platformUsers[0];
+  platformUsers.find((role) => role.id === roleId) ??
+  platformUsers.find((role) => role.id === "job-owner") ??
+  platformUsers[0];
 
 export { platformUsers };

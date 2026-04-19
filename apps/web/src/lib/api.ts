@@ -7,6 +7,8 @@ import type {
   JobDetailResponse,
   JobRecord,
   LoginInput,
+  PublicJobResponse,
+  PublicJobsResponse,
   ScreeningResultRecord,
   TalentApplicationsResponse,
   UpdateJobInput,
@@ -63,6 +65,14 @@ export const api = {
     }),
   getDashboard: async (): Promise<DashboardResponse> =>
     request<DashboardResponse>("/api/dashboard", {
+      cache: "no-store",
+    }),
+  getPublicJobs: async (): Promise<PublicJobsResponse> =>
+    request<PublicJobsResponse>("/api/public/jobs", {
+      cache: "no-store",
+    }),
+  getPublicJob: async (jobId: string): Promise<PublicJobResponse> =>
+    request<PublicJobResponse>(`/api/public/jobs/${jobId}`, {
       cache: "no-store",
     }),
   uploadTalentResume: async (

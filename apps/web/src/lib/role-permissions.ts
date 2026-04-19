@@ -1,15 +1,20 @@
 import type { PlatformUserId } from "./platform-users";
 
-export const canManageJobs = (roleId: PlatformUserId) =>
-  roleId === "recruiter" || roleId === "platform-admin";
+export const isTalentUser = (roleId: PlatformUserId) => roleId === "talent";
+
+export const isJobOwner = (roleId: PlatformUserId) => roleId === "job-owner";
+
+export const isAdminUser = (roleId: PlatformUserId) => roleId === "admin";
+
+export const canManageJobs = (roleId: PlatformUserId) => isJobOwner(roleId);
 
 export const canManageApplicants = (roleId: PlatformUserId) =>
-  roleId === "recruiter" || roleId === "platform-admin";
+  isJobOwner(roleId);
 
-export const canRunScreening = (roleId: PlatformUserId) =>
-  roleId === "recruiter" || roleId === "platform-admin";
+export const canRunScreening = (roleId: PlatformUserId) => isJobOwner(roleId);
 
 export const canEditJobSettings = (roleId: PlatformUserId) =>
-  roleId === "recruiter" || roleId === "platform-admin";
+  isJobOwner(roleId);
 
-export const isTalentUser = (roleId: PlatformUserId) => roleId === "talent";
+export const canViewJobWorkspace = (roleId: PlatformUserId) =>
+  isJobOwner(roleId);

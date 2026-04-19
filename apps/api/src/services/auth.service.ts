@@ -1,4 +1,10 @@
-import type { AuthUser, CreateUserInput, LoginInput, StoredUserRecord } from "@umurava/shared";
+import {
+  normalizeUserRole,
+  type AuthUser,
+  type CreateUserInput,
+  type LoginInput,
+  type StoredUserRecord,
+} from "@umurava/shared";
 
 import { HttpError } from "../lib/http-error.js";
 import { hashPassword, verifyPassword } from "../lib/password.js";
@@ -8,7 +14,7 @@ const toAuthUser = (user: StoredUserRecord): AuthUser => ({
   id: user.id,
   name: user.name,
   email: user.email,
-  roleId: user.roleId,
+  roleId: normalizeUserRole(user.roleId),
   location: user.location,
   createdAt: user.createdAt,
   updatedAt: user.updatedAt,
@@ -29,7 +35,7 @@ export const registerUser = async (
     name: input.name.trim(),
     email: normalizedEmail,
     passwordHash: await hashPassword(input.password),
-    roleId: input.roleId,
+    roleId: normalizeUserRole(input.roleId),
     location: input.location.trim(),
   });
 

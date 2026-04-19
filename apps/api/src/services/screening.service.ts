@@ -5,13 +5,21 @@ import type {
   CandidateReasoning,
   JobRecord,
   ScreeningBreakdown,
+  ScreeningConfidence,
+  ScreeningDecision,
+  ScreeningOverview,
   ScreeningProvider,
+  ScreeningRiskLevel,
   ScreeningResultRecord,
   SkillLevel,
 } from "@umurava/shared";
 
 import { env } from "../config/env.js";
 import type { Repository } from "../repositories/types.js";
+import {
+  isGeminiConfigured,
+  screenApplicantWithGemini,
+} from "./gemini.service.js";
 
 const skillLevelScore: Record<SkillLevel, number> = {
   beginner: 0.4,
@@ -44,6 +52,22 @@ const findApplicantSkill = (
   skillName: string
 ): ApplicantRecord["skills"][number] | undefined =>
   applicant.skills.find((skill) => containsLoose(skill.name, skillName));
+
+const getMatchedSkills = (
+  job: JobRecord,
+  applicant: ApplicantRecord
+): string[] =>
+  job.requiredSkills
+    .filter((skill) => findApplicantSkill(applicant, skill.name))
+    .map((skill) => skill.name);
+
+const getMissingSkills = (
+  job: JobRecord,
+  applicant: ApplicantRecord
+): string[] =>
+  job.requiredSkills
+    .filter((skill) => !findApplicantSkill(applicant, skill.name))
+    .map((skill) => skill.name);
 
 const getSkillScore = (
   job: JobRecord,
@@ -149,13 +173,8 @@ const buildReasoning = (
   breakdown: ScreeningBreakdown,
   finalScore: number
 ): CandidateReasoning => {
-  const matchedSkills = job.requiredSkills
-    .filter((skill) => findApplicantSkill(applicant, skill.name))
-    .map((skill) => skill.name);
-
-  const missingSkills = job.requiredSkills
-    .filter((skill) => !findApplicantSkill(applicant, skill.name))
-    .map((skill) => skill.name);
+  const matchedSkills = getMatchedSkills(job, applicant);
+  const missingSkills = getMissingSkills(job, applicant);
 
   const strengths = [
     matchedSkills.length > 0
@@ -210,57 +229,328 @@ const buildReasoning = (
   };
 };
 
+const computeFinalScore = (breakdown: ScreeningBreakdown): number =>
+  Number(
+    (
+      breakdown.skills * 0.4 +
+      breakdown.experience * 0.3 +
+      breakdown.education * 0.15 +
+      breakdown.relevance * 0.15
+    ).toFixed(1)
+  );
+
+type ScreeningSignals = {
+  decision: NonNullable<ScreeningResultRecord["decision"]>;
+  confidence: NonNullable<ScreeningResultRecord["confidence"]>;
+  riskLevel: NonNullable<ScreeningResultRecord["riskLevel"]>;
+  matchedSkills: ScreeningResultRecord["matchedSkills"];
+  missingSkills: ScreeningResultRecord["missingSkills"];
+};
+
+const getConfidence = (finalScore: number): ScreeningConfidence => {
+  if (finalScore >= 80) {
+    return "high";
+  }
+
+  if (finalScore >= 65) {
+    return "medium";
+  }
+
+  return "low";
+};
+
+const getDecision = (finalScore: number): ScreeningDecision =>
+  finalScore >= 80 ? "strong-shortlist" : "shortlist";
+
+const getRiskLevel = (
+  job: JobRecord,
+  applicant: ApplicantRecord,
+  breakdown: ScreeningBreakdown,
+  finalScore: number,
+  missingSkills: string[]
+): ScreeningRiskLevel => {
+  let riskPoints = 0;
+
+  if (finalScore < 60) {
+    riskPoints += 3;
+  } else if (finalScore < 70) {
+    riskPoints += 2;
+  } else if (finalScore < 80) {
+    riskPoints += 1;
+  }
+
+  if (missingSkills.length >= 3) {
+    riskPoints += 2;
+  } else if (missingSkills.length > 0) {
+    riskPoints += 1;
+  }
+
+  if (applicant.totalExperienceYears < job.minimumExperienceYears) {
+    riskPoints += 2;
+  }
+
+  if (breakdown.relevance < 55) {
+    riskPoints += 1;
+  }
+
+  if (job.educationPreferences.length > 0 && breakdown.education < 45) {
+    riskPoints += 1;
+  }
+
+  if (riskPoints >= 5) {
+    return "high";
+  }
+
+  if (riskPoints >= 2) {
+    return "medium";
+  }
+
+  return "low";
+};
+
+const buildScreeningSignals = (
+  job: JobRecord,
+  applicant: ApplicantRecord,
+  breakdown: ScreeningBreakdown,
+  finalScore: number
+): ScreeningSignals => {
+  const matchedSkills = getMatchedSkills(job, applicant);
+  const missingSkills = getMissingSkills(job, applicant);
+
+  return {
+    decision: getDecision(finalScore),
+    confidence: getConfidence(finalScore),
+    riskLevel: getRiskLevel(job, applicant, breakdown, finalScore, missingSkills),
+    matchedSkills,
+    missingSkills,
+  };
+};
+
+const buildTopCandidateSummary = (
+  job: JobRecord,
+  screening: ScreeningResultRecord,
+  applicant: ApplicantRecord | undefined
+): string => {
+  const name = applicant?.fullName ?? "Unknown candidate";
+  const skillsText =
+    screening.matchedSkills.length > 0
+      ? screening.matchedSkills.slice(0, 3).join(", ")
+      : "transferable experience";
+
+  return `${screening.rank}. ${name} scored ${screening.matchScore}% for ${job.title}, with standout alignment in ${skillsText}. ${screening.reasoning.recommendation}`;
+};
+
+const buildOverallJobFitSummary = (
+  job: JobRecord,
+  applicants: ApplicantRecord[],
+  screenings: ScreeningResultRecord[]
+): string => {
+  const totalApplicants = applicants.length;
+  const shortlistedCount = screenings.length;
+  const rejectedCount = Math.max(totalApplicants - shortlistedCount, 0);
+  const averageMatchScore =
+    screenings.length === 0
+      ? 0
+      : Number(
+          (
+            screenings.reduce((sum, item) => sum + item.matchScore, 0) /
+            screenings.length
+          ).toFixed(1)
+        );
+  const topScreening = screenings[0];
+  const topApplicant = applicants.find(
+    (applicant) => applicant.id === topScreening?.applicantId
+  );
+
+  const poolSignal =
+    (topScreening?.matchScore ?? 0) >= 80
+      ? "The current pool includes at least one standout option ready for fast recruiter review."
+      : (topScreening?.matchScore ?? 0) >= 65
+        ? "The shortlist has workable options, but interview validation should stay focused on remaining gaps."
+        : "The pool is thin right now, so recruiter review should balance current fit with sourcing follow-up.";
+
+  const skillGapCount = screenings.filter(
+    (item) => item.missingSkills.length > 0
+  ).length;
+  const gapSignal =
+    skillGapCount === 0
+      ? "Required-skill coverage is strong across the shortlisted candidates."
+      : `${skillGapCount} shortlisted candidate${
+          skillGapCount === 1 ? "" : "s"
+        } still show at least one notable skill gap that should be checked in interviews.`;
+
+  return `${totalApplicants} applicants were screened for ${job.title}. ${shortlistedCount} candidate${
+    shortlistedCount === 1 ? "" : "s"
+  } landed in the shortlist while ${rejectedCount} were not advanced, and the shortlisted average sits at ${averageMatchScore}%. ${
+    topApplicant && topScreening
+      ? `${topApplicant.fullName} currently leads the pool at ${topScreening.matchScore}%. `
+      : ""
+  }${poolSignal} ${gapSignal}`;
+};
+
+export const buildScreeningOverview = (
+  job: JobRecord,
+  applicants: ApplicantRecord[],
+  screenings: ScreeningResultRecord[]
+): ScreeningOverview | null => {
+  if (applicants.length === 0 || screenings.length === 0) {
+    return null;
+  }
+
+  const averageMatchScore = Number(
+    (
+      screenings.reduce((sum, item) => sum + item.matchScore, 0) /
+      screenings.length
+    ).toFixed(1)
+  );
+
+  return {
+    generatedAt: screenings[0]?.createdAt ?? new Date().toISOString(),
+    provider: screenings[0]?.provider ?? env.SCREENING_PROVIDER,
+    totalApplicants: applicants.length,
+    shortlistedCount: screenings.length,
+    rejectedCount: Math.max(applicants.length - screenings.length, 0),
+    averageMatchScore,
+    overallJobFitSummary: buildOverallJobFitSummary(job, applicants, screenings),
+    topCandidateSummaries: screenings
+      .slice(0, 3)
+      .map((screening) =>
+        buildTopCandidateSummary(
+          job,
+          screening,
+          applicants.find((applicant) => applicant.id === screening.applicantId)
+        )
+      ),
+  };
+};
+
+const buildMockAssessment = (
+  job: JobRecord,
+  applicant: ApplicantRecord
+): {
+  breakdown: ScreeningBreakdown;
+  finalScore: number;
+  reasoning: CandidateReasoning;
+  provider: ScreeningProvider;
+  decision: ScreeningSignals["decision"];
+  confidence: ScreeningSignals["confidence"];
+  riskLevel: ScreeningSignals["riskLevel"];
+  matchedSkills: ScreeningSignals["matchedSkills"];
+  missingSkills: ScreeningSignals["missingSkills"];
+} => {
+  const breakdown: ScreeningBreakdown = {
+    skills: getSkillScore(job, applicant),
+    experience: getExperienceScore(job, applicant),
+    education: getEducationScore(job, applicant),
+    relevance: getRelevanceScore(job, applicant),
+  };
+
+  const finalScore = computeFinalScore(breakdown);
+  const signals = buildScreeningSignals(job, applicant, breakdown, finalScore);
+
+  return {
+    breakdown,
+    finalScore,
+    reasoning: buildReasoning(job, applicant, breakdown, finalScore),
+    provider: "mock",
+    ...signals,
+  };
+};
+
+const toScreeningRecords = (
+  job: JobRecord,
+  entries: Array<{
+    applicant: ApplicantRecord;
+    breakdown: ScreeningBreakdown;
+    finalScore: number;
+    reasoning: CandidateReasoning;
+    provider: ScreeningProvider;
+    decision: ScreeningSignals["decision"];
+    confidence: ScreeningSignals["confidence"];
+    riskLevel: ScreeningSignals["riskLevel"];
+    matchedSkills: ScreeningSignals["matchedSkills"];
+    missingSkills: ScreeningSignals["missingSkills"];
+  }>
+): ScreeningResultRecord[] =>
+  entries
+    .sort((left, right) => right.finalScore - left.finalScore)
+    .slice(0, job.shortlistLimit)
+    .map((entry, index) => ({
+      id: `screening_${randomUUID()}`,
+      jobId: job.id,
+      applicantId: entry.applicant.id,
+      provider: entry.provider,
+      rank: index + 1,
+      matchScore: entry.finalScore,
+      breakdown: entry.breakdown,
+      reasoning: entry.reasoning,
+      decision: entry.decision,
+      confidence: entry.confidence,
+      riskLevel: entry.riskLevel,
+      matchedSkills: entry.matchedSkills,
+      missingSkills: entry.missingSkills,
+      createdAt: new Date().toISOString(),
+    }));
+
 const buildMockScreenings = (
   job: JobRecord,
   applicants: ApplicantRecord[]
-): ScreeningResultRecord[] => {
-  const shortlisted = applicants
-    .map((applicant) => {
-      const breakdown: ScreeningBreakdown = {
-        skills: getSkillScore(job, applicant),
-        experience: getExperienceScore(job, applicant),
-        education: getEducationScore(job, applicant),
-        relevance: getRelevanceScore(job, applicant),
-      };
-
-      const finalScore = Number(
-        (
-          breakdown.skills * 0.4 +
-          breakdown.experience * 0.3 +
-          breakdown.education * 0.15 +
-          breakdown.relevance * 0.15
-        ).toFixed(1)
-      );
-
-      return {
-        applicant,
-        breakdown,
-        finalScore,
-        reasoning: buildReasoning(job, applicant, breakdown, finalScore),
-      };
-    })
-    .sort((left, right) => right.finalScore - left.finalScore)
-    .slice(0, job.shortlistLimit);
-
-  return shortlisted.map((entry, index) => ({
-    id: `screening_${randomUUID()}`,
-    jobId: job.id,
-    applicantId: entry.applicant.id,
-    provider: "mock",
-    rank: index + 1,
-    matchScore: entry.finalScore,
-    breakdown: entry.breakdown,
-    reasoning: entry.reasoning,
-    createdAt: new Date().toISOString(),
-  }));
-};
+): ScreeningResultRecord[] =>
+  toScreeningRecords(
+    job,
+    applicants.map((applicant) => ({
+      applicant,
+      ...buildMockAssessment(job, applicant),
+    }))
+  );
 
 const assertProviderReady = (provider: ScreeningProvider): void => {
-  if (provider === "gemini") {
+  if (provider === "gemini" && !isGeminiConfigured()) {
     throw new Error(
-      "Gemini screening is not connected yet. Use the mock provider until the API integration is added."
+      "SCREENING_PROVIDER is set to gemini, but GEMINI_API_KEY is missing in apps/api/.env."
     );
   }
+};
+
+const buildGeminiScreenings = async (
+  job: JobRecord,
+  applicants: ApplicantRecord[]
+): Promise<ScreeningResultRecord[]> => {
+  const evaluations = await Promise.all(
+    applicants.map(async (applicant) => {
+      try {
+        const assessment = await screenApplicantWithGemini(job, applicant);
+        const finalScore = computeFinalScore(assessment.breakdown);
+        const signals = buildScreeningSignals(
+          job,
+          applicant,
+          assessment.breakdown,
+          finalScore
+        );
+
+        return {
+          applicant,
+          breakdown: assessment.breakdown,
+          finalScore,
+          reasoning: assessment.reasoning,
+          provider: "gemini" as const,
+          ...signals,
+        };
+      } catch (error) {
+        console.warn(
+          `Gemini screening failed for ${applicant.fullName}. Falling back to mock scoring.`,
+          error
+        );
+
+        return {
+          applicant,
+          ...buildMockAssessment(job, applicant),
+        };
+      }
+    })
+  );
+
+  return toScreeningRecords(job, evaluations);
 };
 
 export const runScreeningForJob = async (
@@ -279,7 +569,10 @@ export const runScreeningForJob = async (
 
   assertProviderReady(env.SCREENING_PROVIDER);
 
-  const screenings = buildMockScreenings(job, applicants);
+  const screenings =
+    env.SCREENING_PROVIDER === "gemini"
+      ? await buildGeminiScreenings(job, applicants)
+      : buildMockScreenings(job, applicants);
   await repository.replaceScreenings(jobId, screenings);
   await repository.markApplicantsScreened(jobId);
   return screenings;

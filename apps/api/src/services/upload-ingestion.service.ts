@@ -5,6 +5,12 @@ import ExcelJS from "exceljs";
 import pdfParse from "pdf-parse";
 import type { CreateApplicantInput } from "@umurava/shared";
 
+import {
+  extractApplicantFromResumePdf,
+  extractResumeTextFromPdf,
+  isGeminiConfigured,
+} from "./gemini.service.js";
+
 type UploadOutcome = {
   applicants: CreateApplicantInput[];
   warnings: string[];
@@ -47,6 +53,56 @@ const titleCaseFilename = (filename: string): string =>
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\b\w/g, (match) => match.toUpperCase());
+
+const readPdfText = async (buffer: Buffer): Promise<string> => {
+  try {
+    const parsedPdf = await pdfParse(buffer);
+    return parsedPdf.text.replace(/\u0000/g, " ").trim();
+  } catch {
+    return "";
+  }
+};
+
+const normalizeResumeText = (value: string): string =>
+  value
+    .replace(/\u0000/g, " ")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[^\S\n]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+const buildFallbackPdfApplicant = (
+  fileName: string,
+  derivedName: string,
+  resumeText: string
+): CreateApplicantInput | null =>
+  normalizeApplicant({
+    fullName: derivedName,
+    headline: "",
+    email: "",
+    phone: "",
+    location: "Unknown",
+    source: "pdf",
+    resumeUrl: "",
+    resumeFileName: fileName,
+    resumeText,
+    profileSummary: resumeText.replace(/\s+/g, " ").trim().slice(0, 500),
+    totalExperienceYears: 0,
+    education: [],
+    skills: [],
+    languages: [],
+    experience: [],
+    certifications: [],
+    projects: [],
+    availability: {
+      status: "open-to-opportunities",
+      type: "full-time",
+      startDate: "",
+    },
+    socialLinks: {},
+    tags: ["pdf-upload"],
+  });
 
 const rowToApplicant = (row: Record<string, unknown>): CreateApplicantInput => {
   const skillNames = splitList(
@@ -274,38 +330,37 @@ export const parseApplicantUploads = async (
     }
 
     if (extension === ".pdf") {
-      const parsedPdf = await pdfParse(file.buffer);
+      const rawResumeText = await readPdfText(file.buffer);
       const derivedName = titleCaseFilename(file.originalname);
+      let candidate: CreateApplicantInput | null = null;
 
-      const candidate = normalizeApplicant({
-        fullName: derivedName,
-        headline: "",
-        email: "",
-        phone: "",
-        location: "Unknown",
-        source: "pdf",
-        resumeUrl: "",
-        resumeFileName: file.originalname,
-        resumeText: parsedPdf.text.trim(),
-        profileSummary: parsedPdf.text
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 500),
-        totalExperienceYears: 0,
-        education: [],
-        skills: [],
-        languages: [],
-        experience: [],
-        certifications: [],
-        projects: [],
-        availability: {
-          status: "open-to-opportunities",
-          type: "full-time",
-          startDate: "",
-        },
-        socialLinks: {},
-        tags: ["pdf-upload"],
-      });
+      if (isGeminiConfigured()) {
+        try {
+          candidate = normalizeApplicant({
+            ...(await extractApplicantFromResumePdf(
+              file,
+              rawResumeText,
+              derivedName
+            )),
+            source: "pdf",
+            resumeFileName: file.originalname,
+          });
+        } catch (error) {
+          console.warn(
+            `Gemini resume extraction failed for ${file.originalname}. Falling back to raw PDF parsing.`,
+            error
+          );
+          warnings.push(
+            `${file.originalname}: Gemini extraction failed, so the system used basic PDF text parsing instead.`
+          );
+        }
+      }
+
+      candidate ??= buildFallbackPdfApplicant(
+        file.originalname,
+        derivedName,
+        rawResumeText
+      );
 
       if (candidate) {
         applicants.push(candidate);
@@ -333,8 +388,21 @@ export const parseTalentResumeUpload = async (
     throw new Error("Talent CV upload currently supports PDF files only.");
   }
 
-  const parsedPdf = await pdfParse(file.buffer);
-  const normalizedText = parsedPdf.text.replace(/\s+/g, " ").trim();
+  const rawResumeText = await readPdfText(file.buffer);
+  let normalizedText = normalizeResumeText(rawResumeText);
+
+  if (isGeminiConfigured()) {
+    try {
+      normalizedText = normalizeResumeText(
+        await extractResumeTextFromPdf(file, normalizedText)
+      );
+    } catch (error) {
+      console.warn(
+        `Gemini resume text extraction failed for ${file.originalname}. Falling back to raw PDF parsing.`,
+        error
+      );
+    }
+  }
 
   if (!normalizedText) {
     throw new Error("The uploaded PDF did not contain readable text.");
@@ -343,6 +411,6 @@ export const parseTalentResumeUpload = async (
   return {
     fileName: file.originalname,
     resumeText: normalizedText,
-    summaryExcerpt: normalizedText.slice(0, 420),
+    summaryExcerpt: normalizedText.replace(/\s+/g, " ").trim().slice(0, 420),
   };
 };

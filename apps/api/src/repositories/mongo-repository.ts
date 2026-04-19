@@ -9,6 +9,7 @@ import type {
   StoredUserRecord,
   UpdateJobInput,
 } from "@umurava/shared";
+import { normalizeUserRole } from "@umurava/shared";
 
 import { ApplicantModel } from "../models/applicant.model.js";
 import { JobModel } from "../models/job.model.js";
@@ -132,6 +133,21 @@ const mapScreening = (doc: Record<string, unknown>): ScreeningResultRecord => ({
   matchScore: Number(doc.matchScore),
   breakdown: doc.breakdown as ScreeningResultRecord["breakdown"],
   reasoning: doc.reasoning as ScreeningResultRecord["reasoning"],
+  decision:
+    (doc.decision as ScreeningResultRecord["decision"] | undefined) ??
+    undefined,
+  confidence:
+    (doc.confidence as ScreeningResultRecord["confidence"] | undefined) ??
+    undefined,
+  riskLevel:
+    (doc.riskLevel as ScreeningResultRecord["riskLevel"] | undefined) ??
+    undefined,
+  matchedSkills: Array.isArray(doc.matchedSkills)
+    ? (doc.matchedSkills as ScreeningResultRecord["matchedSkills"])
+    : [],
+  missingSkills: Array.isArray(doc.missingSkills)
+    ? (doc.missingSkills as ScreeningResultRecord["missingSkills"])
+    : [],
   createdAt: toIsoString(doc.createdAt),
 });
 
@@ -140,7 +156,7 @@ const mapUser = (doc: Record<string, unknown>): StoredUserRecord => ({
   name: String(doc.name),
   email: String(doc.email),
   passwordHash: String(doc.passwordHash),
-  roleId: doc.roleId as StoredUserRecord["roleId"],
+  roleId: normalizeUserRole(String(doc.roleId ?? "")),
   location: String(doc.location),
   createdAt: toIsoString(doc.createdAt),
   updatedAt: toIsoString(doc.updatedAt),
@@ -207,6 +223,16 @@ export class MongoRepository implements Repository {
     const created = inputs.map((input) => withApplicantRecord(jobId, input));
     await ApplicantModel.insertMany(created);
     return created;
+  }
+
+  async resetJobScreening(jobId: string): Promise<void> {
+    await Promise.all([
+      ApplicantModel.updateMany(
+        { jobId },
+        { screeningStatus: "ready", updatedAt: new Date() }
+      ),
+      ScreeningModel.deleteMany({ jobId }),
+    ]);
   }
 
   async markApplicantsScreened(jobId: string): Promise<void> {
