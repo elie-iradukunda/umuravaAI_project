@@ -78,6 +78,7 @@ const applicantSchema = new Schema(
   {
     id: { type: String, required: true, unique: true, index: true },
     jobId: { type: String, required: true, index: true },
+    submittedByUserId: { type: String, trim: true, default: null, index: true },
     fullName: { type: String, required: true, trim: true },
     headline: { type: String, trim: true, default: "" },
     email: { type: String, trim: true, default: "" },

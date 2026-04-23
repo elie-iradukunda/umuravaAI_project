@@ -16,8 +16,8 @@ import {
 import { api } from "../../lib/api";
 import { formatDate, startCase } from "../../lib/format";
 import {
+  buildTalentProfileValues,
   estimateTalentProfileCompletion,
-  loadTalentProfileDraft,
 } from "../../lib/talent-profile";
 import { selectCurrentUser } from "../../store/auth-slice";
 import { useAppSelector } from "../../store/hooks";
@@ -76,11 +76,36 @@ export const TalentJobsPage = () => {
   }, [currentUser]);
 
   useEffect(() => {
-    if (currentUser) {
-      setCompletion(
-        estimateTalentProfileCompletion(loadTalentProfileDraft(currentUser))
-      );
+    if (!currentUser) {
+      return;
     }
+
+    let active = true;
+
+    const loadProfile = async () => {
+      try {
+        const response = await api.getTalentProfile(currentUser.id);
+        if (!active) {
+          return;
+        }
+
+        setCompletion(
+          estimateTalentProfileCompletion(
+            buildTalentProfileValues(response.profile, currentUser)
+          )
+        );
+      } catch {
+        if (active) {
+          setCompletion(0);
+        }
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
   }, [currentUser]);
 
   const departments = useMemo(
@@ -161,7 +186,7 @@ export const TalentJobsPage = () => {
           This page is reserved for the talent account
         </h2>
         <p className="section-copy">
-          Switch to the demo talent login if you want to browse jobs and apply
+          Sign in with a talent account if you want to browse jobs and apply
           with a structured profile.
         </p>
       </div>

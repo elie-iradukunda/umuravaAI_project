@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 
-import { getPlatformUserDetails } from "../../lib/demo-users";
+import { getPlatformUserDetails } from "../../lib/platform-users";
 import { selectCurrentUser } from "../../store/auth-slice";
 import { useAppSelector } from "../../store/hooks";
 import { ProtectedAppShell } from "./protected-app-shell";

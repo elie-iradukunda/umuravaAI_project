@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type {
   DashboardJobSnapshot,
+  NotificationRecord,
   TalentApplicationRecord,
 } from "@umurava/shared";
 import {
@@ -17,46 +18,50 @@ import {
 } from "lucide-react";
 
 import { api } from "../../lib/api";
-import type { DemoUser } from "../../lib/demo-users";
 import { formatDate, formatScore, startCase } from "../../lib/format";
+import type { SessionUser } from "../../lib/session-user";
 import { buildTalentJobSuggestions } from "../../lib/talent-job-match";
 import {
   buildTalentProfileDefaults,
+  buildTalentProfileValues,
   estimateTalentProfileCompletion,
-  loadTalentProfileDraft,
   type TalentProfileValues,
 } from "../../lib/talent-profile";
+import {
+  markNotificationsRead,
+  selectNotifications,
+  selectNotificationsState,
+  selectNotificationSummary,
+} from "../../store/notification-slice";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
 
 type TalentDashboardPageProps = {
-  currentUser: DemoUser;
+  currentUser: SessionUser;
   jobs: DashboardJobSnapshot[];
 };
 
 type LoadStatus = "idle" | "loading" | "succeeded" | "failed";
 
-type TalentNotification = {
-  id: string;
-  title: string;
-  message: string;
-  href: string;
-  actionLabel: string;
-  createdAt: string;
-  badge: string;
-  tone: "info" | "success" | "suggestion";
-};
-
 const shortlistedDecisionIds = new Set(["shortlist", "strong-shortlist"]);
 
-const notificationToneStyles: Record<TalentNotification["tone"], string> = {
+const notificationToneStyles: Record<NotificationRecord["tone"], string> = {
   info: "border-[#dbe7ff] bg-[#f8fbff] text-[#2559b8]",
   success: "border-emerald-100 bg-emerald-50 text-emerald-700",
-  suggestion: "border-[#f7e7b6] bg-[#fffdf5] text-[#a97800]",
+  warning: "border-[#f7e7b6] bg-[#fffdf5] text-[#a97800]",
 };
 
 export const TalentDashboardPage = ({
   currentUser,
   jobs,
 }: TalentDashboardPageProps) => {
+  const dispatch = useAppDispatch();
+  const notifications = useAppSelector(selectNotifications);
+  const notificationSummary = useAppSelector(selectNotificationSummary);
+  const {
+    error: notificationError,
+    markStatus,
+    status: notificationsStatus,
+  } = useAppSelector(selectNotificationsState);
   const [profileDraft, setProfileDraft] = useState<TalentProfileValues>(() =>
     buildTalentProfileDefaults(currentUser)
   );
@@ -68,15 +73,42 @@ export const TalentDashboardPage = ({
   const [applicationsError, setApplicationsError] = useState("");
 
   useEffect(() => {
-    const draft = loadTalentProfileDraft(currentUser);
-    setProfileDraft(draft);
-    setProfileCompletion(estimateTalentProfileCompletion(draft));
-    setSavedSkillCount(draft.skills.filter((item) => item.name.trim()).length);
-    setSavedExperienceCount(
-      draft.experience.filter(
-        (item) => item.company.trim() || item.role.trim()
-      ).length
-    );
+    let active = true;
+
+    const loadProfile = async () => {
+      try {
+        const response = await api.getTalentProfile(currentUser.id);
+        if (!active) {
+          return;
+        }
+
+        const profile = buildTalentProfileValues(response.profile, currentUser);
+        setProfileDraft(profile);
+        setProfileCompletion(estimateTalentProfileCompletion(profile));
+        setSavedSkillCount(profile.skills.filter((item) => item.name.trim()).length);
+        setSavedExperienceCount(
+          profile.experience.filter(
+            (item) => item.company.trim() || item.role.trim()
+          ).length
+        );
+      } catch {
+        if (!active) {
+          return;
+        }
+
+        const defaults = buildTalentProfileDefaults(currentUser);
+        setProfileDraft(defaults);
+        setProfileCompletion(estimateTalentProfileCompletion(defaults));
+        setSavedSkillCount(0);
+        setSavedExperienceCount(0);
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
   }, [currentUser]);
 
   useEffect(() => {
@@ -87,10 +119,7 @@ export const TalentDashboardPage = ({
       setApplicationsError("");
 
       try {
-        const response = await api.getTalentApplications(
-          currentUser.email,
-          currentUser.name
-        );
+        const response = await api.getTalentApplications(currentUser.id);
 
         if (!active) {
           return;
@@ -145,19 +174,6 @@ export const TalentDashboardPage = ({
     return (strongMatches.length > 0 ? strongMatches : suggestions).slice(0, 4);
   }, [suggestions]);
 
-  const latestOpportunityAlerts = useMemo(
-    () =>
-      [...jobs]
-        .filter((snapshot) => !appliedJobIds.has(snapshot.job.id))
-        .sort(
-          (left, right) =>
-            new Date(right.job.updatedAt).getTime() -
-            new Date(left.job.updatedAt).getTime()
-        )
-        .slice(0, 4),
-    [appliedJobIds, jobs]
-  );
-
   const shortlistAlerts = useMemo(
     () =>
       applications.filter(
@@ -168,85 +184,25 @@ export const TalentDashboardPage = ({
     [applications]
   );
 
-  const notifications = useMemo(() => {
-    const items: TalentNotification[] = [];
+  const handleMarkAllRead = () => {
+    const unreadIds = notifications
+      .filter((notification) => !notification.isRead)
+      .map((notification) => notification.id);
 
-    applications.forEach((application) => {
-      if (
-        application.screening?.decision &&
-        shortlistedDecisionIds.has(application.screening.decision)
-      ) {
-        items.push({
-          id: `shortlist-${application.applicationId}`,
-          title: `Shortlisted for ${application.job.title}`,
-          message: `Your application is on the shortlist with ${formatScore(
-            application.screening.matchScore
-          )} fit. Open your applications to review the latest AI signal.`,
-          href: "/talent/applications",
-          actionLabel: "View application",
-          createdAt:
-            application.screening.createdAt || application.submittedAt,
-          badge: "Shortlisted",
-          tone: "success",
-        });
-        return;
-      }
+    if (unreadIds.length === 0) {
+      return;
+    }
 
-      items.push({
-        id: `application-${application.applicationId}`,
-        title: `Application submitted for ${application.job.title}`,
-        message:
-          "Your profile is now in the job-owner workspace and ready for review or AI screening.",
-        href: "/talent/applications",
-        actionLabel: "Track status",
-        createdAt: application.submittedAt,
-        badge: "Applied",
-        tone: "info",
-      });
-    });
+    void dispatch(markNotificationsRead(unreadIds));
+  };
 
-    suggestions
-      .filter((item) => !item.isApplied)
-      .slice(0, 2)
-      .forEach((item) => {
-        items.push({
-          id: `suggested-${item.snapshot.job.id}`,
-          title: `Suggested role: ${item.snapshot.job.title}`,
-          message:
-            item.suggestion.matchedSkills.length > 0
-              ? `Matched skills: ${item.suggestion.matchedSkills
-                  .slice(0, 3)
-                  .join(", ")}.`
-              : "This job aligns with your profile summary, experience, and CV details.",
-          href: `/talent/jobs/${item.snapshot.job.id}/apply`,
-          actionLabel: "Apply now",
-          createdAt: item.snapshot.job.updatedAt,
-          badge: "Suggested",
-          tone: "suggestion",
-        });
-      });
+  const handleNotificationOpen = (notification: NotificationRecord) => {
+    if (notification.isRead) {
+      return;
+    }
 
-    latestOpportunityAlerts.slice(0, 2).forEach((snapshot) => {
-      items.push({
-        id: `new-job-${snapshot.job.id}`,
-        title: `New job posted: ${snapshot.job.title}`,
-        message: `${snapshot.job.department} in ${snapshot.job.location} is live and ready for applications.`,
-        href: `/talent/jobs/${snapshot.job.id}`,
-        actionLabel: "Open job",
-        createdAt: snapshot.job.updatedAt,
-        badge: "New job",
-        tone: "info",
-      });
-    });
-
-    return items
-      .sort(
-        (left, right) =>
-          new Date(right.createdAt).getTime() -
-          new Date(left.createdAt).getTime()
-      )
-      .slice(0, 6);
-  }, [applications, latestOpportunityAlerts, suggestions]);
+    void dispatch(markNotificationsRead([notification.id]));
+  };
 
   return (
     <section className="space-y-6">
@@ -281,9 +237,9 @@ export const TalentDashboardPage = ({
               </p>
             </article>
             <article className="rounded-[24px] border border-white/15 bg-white/10 p-5 backdrop-blur-sm">
-              <p className="text-sm text-white/75">Dashboard alerts</p>
+              <p className="text-sm text-white/75">Unread alerts</p>
               <p className="mt-3 text-3xl font-semibold text-white">
-                {notifications.length}
+                {notificationSummary.unread}
               </p>
             </article>
           </div>
@@ -322,16 +278,36 @@ export const TalentDashboardPage = ({
           </div>
 
           <p className="section-copy mt-4">
-            The dashboard now highlights submitted applications, shortlist updates,
-            newly posted jobs, and profile-based role suggestions.
+            The dashboard now tracks persisted read and unread alerts from your
+            real applications and new job activity.
           </p>
 
-          {applicationsError ? (
-            <div className="status-note error mt-5">{applicationsError}</div>
+          {applicationsError || notificationError ? (
+            <div className="status-note error mt-5">
+              {applicationsError || notificationError}
+            </div>
           ) : null}
 
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] px-4 py-3">
+            <div className="flex flex-wrap gap-2 text-sm">
+              <span className="chip">Total {notificationSummary.total}</span>
+              <span className="chip">Unread {notificationSummary.unread}</span>
+              <span className="chip">Read {notificationSummary.read}</span>
+            </div>
+            <button
+              type="button"
+              className="text-sm font-semibold text-[#2559b8] transition hover:text-[#173d82] disabled:text-slate-400"
+              onClick={handleMarkAllRead}
+              disabled={
+                notificationSummary.unread === 0 || markStatus === "loading"
+              }
+            >
+              {markStatus === "loading" ? "Updating..." : "Mark all read"}
+            </button>
+          </div>
+
           <div className="mt-5 grid gap-3">
-            {applicationsStatus === "loading" && notifications.length === 0 ? (
+            {notificationsStatus === "loading" && notifications.length === 0 ? (
               <div className="rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] p-4 text-sm text-slate-600">
                 Loading your notifications...
               </div>
@@ -339,12 +315,27 @@ export const TalentDashboardPage = ({
               notifications.map((notification) => (
                 <div
                   key={notification.id}
-                  className="rounded-[22px] border p-4"
+                  className={`rounded-[22px] border p-4 transition ${
+                    notification.isRead
+                      ? "border-[#e7edf8] bg-white"
+                      : "border-[#c9daf8] bg-[#f8fbff] shadow-[0_14px_30px_rgba(37,89,184,0.08)]"
+                  }`}
                 >
-                  <div
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${notificationToneStyles[notification.tone]}`}
-                  >
-                    {notification.badge}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div
+                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] ${notificationToneStyles[notification.tone]}`}
+                    >
+                      {notification.badge}
+                    </div>
+                    <span
+                      className={`text-xs font-semibold uppercase tracking-[0.18em] ${
+                        notification.isRead
+                          ? "text-slate-400"
+                          : "text-[#2559b8]"
+                      }`}
+                    >
+                      {notification.isRead ? "Read" : "Unread"}
+                    </span>
                   </div>
                   <p className="mt-3 text-sm font-semibold text-[#10213c]">
                     {notification.title}
@@ -358,6 +349,7 @@ export const TalentDashboardPage = ({
                     </p>
                     <Link
                       href={notification.href}
+                      onClick={() => handleNotificationOpen(notification)}
                       className="text-sm font-semibold text-[#2559b8] transition hover:text-[#173d82]"
                     >
                       {notification.actionLabel}
@@ -367,8 +359,8 @@ export const TalentDashboardPage = ({
               ))
             ) : (
               <div className="rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] p-4 text-sm leading-6 text-slate-600">
-                No alerts yet. Save your profile, upload your CV, and apply to a
-                role to start receiving talent-side notifications here.
+                No alerts yet. Apply to jobs or wait for new openings and status
+                changes to start receiving live notifications here.
               </div>
             )}
           </div>
@@ -531,52 +523,55 @@ export const TalentDashboardPage = ({
 
       <div className="grid gap-6 xl:grid-cols-2">
         <div className="panel scroll-mt-28 p-6" id="guide">
-          <p className="kicker">Recent Opportunity Alerts</p>
+          <p className="kicker">Application Guide</p>
           <h3 className="section-title mt-3">
-            Newly posted jobs you can open right now
+            Follow the full talent application flow step by step
           </h3>
+          <p className="section-copy max-w-3xl">
+            Use this quick guide to prepare your profile, review jobs
+            carefully, submit stronger applications, and understand what the
+            recruiter and AI screening flow does next.
+          </p>
           <div className="mt-5 grid gap-3">
-            {latestOpportunityAlerts.length > 0 ? (
-              latestOpportunityAlerts.map((snapshot) => (
-                <div
-                  key={snapshot.job.id}
-                  className="rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] p-4"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-[#10213c]">
-                        {snapshot.job.title}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {snapshot.job.department} in {snapshot.job.location}
-                      </p>
-                      <p className="mt-2 text-xs text-slate-500">
-                        Posted {formatDate(snapshot.job.updatedAt)}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Link
-                        href={`/talent/jobs/${snapshot.job.id}`}
-                        className="button-secondary"
-                      >
-                        Open Job
-                      </Link>
-                      <Link
-                        href={`/talent/jobs/${snapshot.job.id}/apply`}
-                        className="button-primary"
-                      >
-                        Apply
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] p-4 text-sm leading-6 text-slate-600">
-                You already applied to the current live jobs. Keep checking the
-                dashboard for fresh opportunities and new matching suggestions.
+            {[
+              {
+                title: "1. Complete your profile",
+                body: "Save your summary, skills, experience, education, links, and CV text before you start applying so recruiters have enough evidence to assess your fit.",
+              },
+              {
+                title: "2. Review the job details",
+                body: "Open the role first, compare your background to required skills, and confirm the brief matches your experience before submitting anything.",
+              },
+              {
+                title: "3. Submit one structured application",
+                body: "Use the guided apply flow to send the same saved profile into the selected job. The platform blocks duplicate applications for that role.",
+              },
+              {
+                title: "4. Track notifications and status",
+                body: "After you apply, return to notifications and My Applications to see recruiter review, screening updates, and shortlist changes.",
+              },
+            ].map((step) => (
+              <div
+                key={step.title}
+                className="rounded-[22px] border border-[#dbe7ff] bg-[#f8fbff] p-4"
+              >
+                <p className="text-sm font-semibold text-[#10213c]">
+                  {step.title}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  {step.body}
+                </p>
               </div>
-            )}
+            ))}
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link href="/talent/guide" className="button-primary">
+              Open Full Guide
+            </Link>
+            <Link href="/talent/profile" className="button-secondary">
+              Update Profile
+            </Link>
           </div>
         </div>
 

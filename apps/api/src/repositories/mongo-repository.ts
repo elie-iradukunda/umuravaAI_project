@@ -5,21 +5,31 @@ import type {
   CreateJobInput,
   DashboardSummary,
   JobRecord,
+  NotificationReadRecord,
   ScreeningResultRecord,
   StoredUserRecord,
+  TalentProfileRecord,
   UpdateJobInput,
 } from "@umurava/shared";
 import { normalizeUserRole } from "@umurava/shared";
 
 import { ApplicantModel } from "../models/applicant.model.js";
 import { JobModel } from "../models/job.model.js";
+import { NotificationReadModel } from "../models/notification-read.model.js";
 import { ScreeningModel } from "../models/screening.model.js";
 import { UserModel } from "../models/user.model.js";
-import type { CreateStoredUserInput, Repository } from "./types.js";
+import type {
+  CreateApplicantsOptions,
+  CreateStoredUserInput,
+  DashboardSummaryOptions,
+  ListJobsOptions,
+  Repository,
+} from "./types.js";
 import {
   computeAverageMatchScore,
   withApplicantRecord,
   withJobRecord,
+  withTalentProfileRecord,
   withUserRecord,
 } from "./utils.js";
 
@@ -33,6 +43,7 @@ const toIsoString = (value: unknown): string => {
 
 const mapJob = (doc: Record<string, unknown>): JobRecord => ({
   id: String(doc.id),
+  ownerUserId: String(doc.ownerUserId),
   title: String(doc.title),
   department: String(doc.department),
   location: String(doc.location),
@@ -51,6 +62,8 @@ const mapJob = (doc: Record<string, unknown>): JobRecord => ({
 const mapApplicant = (doc: Record<string, unknown>): ApplicantRecord => ({
   id: String(doc.id),
   jobId: String(doc.jobId),
+  submittedByUserId:
+    doc.submittedByUserId == null ? null : String(doc.submittedByUserId),
   fullName: String(doc.fullName),
   headline: String(doc.headline ?? ""),
   email: String(doc.email ?? ""),
@@ -162,6 +175,44 @@ const mapUser = (doc: Record<string, unknown>): StoredUserRecord => ({
   updatedAt: toIsoString(doc.updatedAt),
 });
 
+const mapTalentProfile = (
+  userId: string,
+  doc: Record<string, unknown>
+): TalentProfileRecord | null => {
+  const rawProfile = doc.talentProfile;
+
+  if (!rawProfile || typeof rawProfile !== "object") {
+    return null;
+  }
+
+  return withTalentProfileRecord(
+    userId,
+    rawProfile as CreateApplicantInput,
+    {
+      id: `talent_profile_${userId}`,
+      createdAt:
+        doc.createdAt == null ? undefined : toIsoString(doc.createdAt),
+      updatedAt:
+        doc.talentProfileUpdatedAt == null
+          ? doc.updatedAt == null
+            ? undefined
+            : toIsoString(doc.updatedAt)
+          : toIsoString(doc.talentProfileUpdatedAt),
+    }
+  );
+};
+
+const mapNotificationRead = (
+  doc: Record<string, unknown>
+): NotificationReadRecord => ({
+  id: String(doc.id),
+  userId: String(doc.userId),
+  notificationId: String(doc.notificationId),
+  readAt: toIsoString(doc.readAt),
+  createdAt: toIsoString(doc.createdAt),
+  updatedAt: toIsoString(doc.updatedAt),
+});
+
 export class MongoRepository implements Repository {
   public readonly kind = "mongo" as const;
 
@@ -175,8 +226,13 @@ export class MongoRepository implements Repository {
     await mongoose.connect(this.connectionString);
   }
 
-  async listJobs(): Promise<JobRecord[]> {
-    const jobs = await JobModel.find().sort({ updatedAt: -1 }).lean();
+  async listJobs(options: ListJobsOptions = {}): Promise<JobRecord[]> {
+    const jobs = await JobModel.find(
+      options.ownerUserId ? { ownerUserId: options.ownerUserId } : {}
+    )
+      .sort({ updatedAt: -1 })
+      .lean();
+
     return jobs.map((job) => mapJob(job as unknown as Record<string, unknown>));
   }
 
@@ -185,8 +241,8 @@ export class MongoRepository implements Repository {
     return job ? mapJob(job as unknown as Record<string, unknown>) : null;
   }
 
-  async createJob(input: CreateJobInput): Promise<JobRecord> {
-    const job = withJobRecord(input);
+  async createJob(ownerUserId: string, input: CreateJobInput): Promise<JobRecord> {
+    const job = withJobRecord(ownerUserId, input);
     await JobModel.create(job);
     return job;
   }
@@ -218,11 +274,26 @@ export class MongoRepository implements Repository {
 
   async createApplicants(
     jobId: string,
-    inputs: CreateApplicantInput[]
+    inputs: CreateApplicantInput[],
+    options: CreateApplicantsOptions = {}
   ): Promise<ApplicantRecord[]> {
-    const created = inputs.map((input) => withApplicantRecord(jobId, input));
+    const created = inputs.map((input) =>
+      withApplicantRecord(jobId, input, {
+        submittedByUserId: options.submittedByUserId ?? null,
+      })
+    );
     await ApplicantModel.insertMany(created);
     return created;
+  }
+
+  async listApplicantsBySubmittedUser(userId: string): Promise<ApplicantRecord[]> {
+    const applicants = await ApplicantModel.find({ submittedByUserId: userId })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    return applicants.map((item) =>
+      mapApplicant(item as unknown as Record<string, unknown>)
+    );
   }
 
   async resetJobScreening(jobId: string): Promise<void> {
@@ -271,15 +342,31 @@ export class MongoRepository implements Repository {
     return screenings;
   }
 
-  async getDashboardSummary(): Promise<DashboardSummary> {
-    const [jobs, applicants, screenings] = await Promise.all([
-      JobModel.countDocuments(),
-      ApplicantModel.countDocuments(),
-      ScreeningModel.find().lean(),
+  async getDashboardSummary(
+    options: DashboardSummaryOptions = {}
+  ): Promise<DashboardSummary> {
+    const jobFilter = options.ownerUserId ? { ownerUserId: options.ownerUserId } : {};
+    const jobs = await JobModel.find(jobFilter, { id: 1 }).lean();
+    const jobIds = jobs
+      .map((job) => String((job as unknown as { id?: string }).id ?? ""))
+      .filter(Boolean);
+
+    if (jobIds.length === 0) {
+      return {
+        totalJobs: 0,
+        totalApplicants: 0,
+        screenedApplicants: 0,
+        averageMatchScore: 0,
+      };
+    }
+
+    const [applicants, screenings] = await Promise.all([
+      ApplicantModel.countDocuments({ jobId: { $in: jobIds } }),
+      ScreeningModel.find({ jobId: { $in: jobIds } }).lean(),
     ]);
 
     return {
-      totalJobs: jobs,
+      totalJobs: jobIds.length,
       totalApplicants: applicants,
       screenedApplicants: screenings.length,
       averageMatchScore: computeAverageMatchScore(
@@ -309,44 +396,110 @@ export class MongoRepository implements Repository {
     return user;
   }
 
-  async seedIfEmpty(seed: {
-    jobs: JobRecord[];
-    applicants: ApplicantRecord[];
-    screenings: ScreeningResultRecord[];
-  }): Promise<void> {
-    const existingJobs = await JobModel.countDocuments();
-    if (existingJobs > 0) {
-      return;
+  async getTalentProfileByUserId(
+    userId: string
+  ): Promise<TalentProfileRecord | null> {
+    const user = await UserModel.findOne(
+      { id: userId },
+      {
+        id: 1,
+        talentProfile: 1,
+        talentProfileUpdatedAt: 1,
+        createdAt: 1,
+        updatedAt: 1,
+      }
+    ).lean();
+
+    if (!user) {
+      return null;
     }
 
-    if (seed.jobs.length > 0) {
-      await JobModel.insertMany(
-        seed.jobs.map((job) => ({
-          ...job,
-          createdAt: new Date(job.createdAt),
-          updatedAt: new Date(job.updatedAt),
-        }))
-      );
+    return mapTalentProfile(userId, user as unknown as Record<string, unknown>);
+  }
+
+  async upsertTalentProfile(
+    userId: string,
+    input: CreateApplicantInput
+  ): Promise<TalentProfileRecord> {
+    const now = new Date();
+    const updatedUser = await UserModel.findOneAndUpdate(
+      { id: userId },
+      {
+        talentProfile: input,
+        talentProfileUpdatedAt: now,
+        updatedAt: now,
+      },
+      {
+        new: true,
+        lean: true,
+        projection: {
+          id: 1,
+          talentProfile: 1,
+          talentProfileUpdatedAt: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      }
+    );
+
+    if (!updatedUser) {
+      throw new Error("User not found.");
     }
 
-    if (seed.applicants.length > 0) {
-      await ApplicantModel.insertMany(
-        seed.applicants.map((applicant) => ({
-          ...applicant,
-          createdAt: new Date(applicant.createdAt),
-          updatedAt: new Date(applicant.updatedAt),
-        }))
-      );
+    return (
+      mapTalentProfile(userId, updatedUser as unknown as Record<string, unknown>) ??
+      withTalentProfileRecord(userId, input)
+    );
+  }
+
+  async listNotificationReadsByUserId(
+    userId: string
+  ): Promise<NotificationReadRecord[]> {
+    const reads = await NotificationReadModel.find({ userId })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    return reads.map((item) =>
+      mapNotificationRead(item as unknown as Record<string, unknown>)
+    );
+  }
+
+  async markNotificationsRead(
+    userId: string,
+    notificationIds: string[]
+  ): Promise<NotificationReadRecord[]> {
+    const uniqueIds = [...new Set(notificationIds.map((item) => item.trim()).filter(Boolean))];
+
+    if (uniqueIds.length === 0) {
+      return this.listNotificationReadsByUserId(userId);
     }
 
-    if (seed.screenings.length > 0) {
-      await ScreeningModel.insertMany(
-        seed.screenings.map((screening) => ({
-          ...screening,
-          createdAt: new Date(screening.createdAt),
-          updatedAt: new Date(screening.createdAt),
-        }))
-      );
-    }
+    const now = new Date();
+
+    await Promise.all(
+      uniqueIds.map((notificationId) =>
+        NotificationReadModel.findOneAndUpdate(
+          { userId, notificationId },
+          {
+            $set: {
+              readAt: now,
+            },
+            $setOnInsert: {
+              id: `notification_read_${new mongoose.Types.ObjectId().toString()}`,
+              userId,
+              notificationId,
+              createdAt: now,
+            },
+          },
+          {
+            upsert: true,
+            new: true,
+            setDefaultsOnInsert: true,
+          }
+        )
+      )
+    );
+
+    return this.listNotificationReadsByUserId(userId);
   }
 }

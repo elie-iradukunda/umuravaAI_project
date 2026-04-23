@@ -18,9 +18,16 @@ import {
   X,
 } from "lucide-react";
 
-import { authStorageKey, getPlatformUserDetails } from "../../lib/demo-users";
+import { getPlatformUserDetails } from "../../lib/platform-users";
 import { canManageJobs } from "../../lib/role-permissions";
+import { clearStoredSessionUser } from "../../lib/session-user";
 import { signOut, selectAuthState, selectCurrentUser } from "../../store/auth-slice";
+import {
+  loadNotifications,
+  markNotificationsRead,
+  selectNotifications,
+  selectNotificationSummary,
+} from "../../store/notification-slice";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 
 type ProtectedAppShellProps = {
@@ -40,6 +47,7 @@ type HeaderIconLink = {
   label: string;
   href: string;
   icon: typeof Bell;
+  showUnreadBadge?: boolean;
 };
 
 const initialsGradient: Record<string, string> = {
@@ -59,6 +67,8 @@ export const ProtectedAppShell = ({
   const dispatch = useAppDispatch();
   const { hydrated } = useAppSelector(selectAuthState);
   const currentUser = useAppSelector(selectCurrentUser);
+  const notifications = useAppSelector(selectNotifications);
+  const notificationSummary = useAppSelector(selectNotificationSummary);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [currentHash, setCurrentHash] = useState("");
 
@@ -67,6 +77,22 @@ export const ProtectedAppShell = ({
       router.replace("/login");
     }
   }, [currentUser, hydrated, router]);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    void dispatch(loadNotifications());
+
+    const interval = window.setInterval(() => {
+      void dispatch(loadNotifications());
+    }, 10000);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [currentUser, dispatch]);
 
   useEffect(() => {
     setMobileMenuOpen(false);
@@ -104,7 +130,7 @@ export const ProtectedAppShell = ({
         { label: "Browse Jobs", href: "/talent/jobs", icon: BriefcaseBusiness },
         { label: "My Applications", href: "/talent/applications", icon: ClipboardCheck },
         { label: "My Profile", href: "/talent/profile", icon: UsersRound },
-        { label: "Application Guide", href: "/workspace#guide", icon: LineChart },
+        { label: "Application Guide", href: "/talent/guide", icon: LineChart },
         { label: "Settings", href: "/workspace#help", icon: Settings2 },
       ];
     }
@@ -187,6 +213,7 @@ export const ProtectedAppShell = ({
           label: "Notifications",
           href: "/workspace#notifications",
           icon: Bell,
+          showUnreadBadge: true,
         },
         {
           label: "AI Suggestions",
@@ -207,6 +234,7 @@ export const ProtectedAppShell = ({
           label: "System Alerts",
           href: "/workspace#system-status",
           icon: Bell,
+          showUnreadBadge: true,
         },
         {
           label: "AI Controls",
@@ -226,6 +254,7 @@ export const ProtectedAppShell = ({
         label: "Notifications",
         href: "/workspace#pipeline",
         icon: Bell,
+        showUnreadBadge: true,
       },
       {
         label: "AI Decision Center",
@@ -241,12 +270,25 @@ export const ProtectedAppShell = ({
   }, [currentUser, pathname]);
 
   const handleLogout = () => {
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem(authStorageKey);
-    }
-
+    clearStoredSessionUser();
     dispatch(signOut());
     router.replace("/");
+  };
+
+  const handleHeaderIconClick = (showUnreadBadge?: boolean) => {
+    if (!showUnreadBadge || !currentUser || currentUser.roleId === "talent") {
+      return;
+    }
+
+    const unreadIds = notifications
+      .filter((notification) => !notification.isRead)
+      .map((notification) => notification.id);
+
+    if (unreadIds.length === 0) {
+      return;
+    }
+
+    void dispatch(markNotificationsRead(unreadIds));
   };
 
   if (!hydrated || !currentUser || !currentRole) {
@@ -376,9 +418,9 @@ export const ProtectedAppShell = ({
             <div className="rounded-[26px] border border-white/10 bg-white/10 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-white">Demo session</p>
+                  <p className="text-sm font-semibold text-white">Active session</p>
                   <p className="mt-1 text-sm text-[#d8e7ff]">
-                    Switch users or sign out at any time.
+                    Sign out at any time to return to the public landing page.
                   </p>
                 </div>
                 <button
@@ -431,11 +473,23 @@ export const ProtectedAppShell = ({
                       <Link
                         key={item.label}
                         href={item.href}
-                        className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d7e4fb] bg-white text-[#2559b8]"
+                        className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border border-[#d7e4fb] bg-white text-[#2559b8]"
                         aria-label={item.label}
-                        title={item.label}
+                        onClick={() => handleHeaderIconClick(item.showUnreadBadge)}
+                        title={
+                          item.showUnreadBadge && notificationSummary.unread > 0
+                            ? `${item.label} (${notificationSummary.unread} unread)`
+                            : item.label
+                        }
                       >
                         <Icon className="h-4 w-4" />
+                        {item.showUnreadBadge && notificationSummary.unread > 0 ? (
+                          <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-[#e04848] px-1.5 text-[11px] font-semibold leading-none text-white shadow-[0_8px_18px_rgba(224,72,72,0.3)]">
+                            {notificationSummary.unread > 99
+                              ? "99+"
+                              : notificationSummary.unread}
+                          </span>
+                        ) : null}
                       </Link>
                     );
                   })}

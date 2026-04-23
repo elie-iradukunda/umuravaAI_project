@@ -2,33 +2,33 @@
 
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
 
-import { getUserById } from "../lib/demo-users";
+import type { SessionUser } from "../lib/session-user";
 import type { RootState } from "./index";
 
 type AuthState = {
   hydrated: boolean;
-  currentUserId: string | null;
+  currentUser: SessionUser | null;
 };
 
 const initialState: AuthState = {
   hydrated: false,
-  currentUserId: null,
+  currentUser: null,
 };
 
 const authSlice = createSlice({
   name: "auth",
   initialState,
   reducers: {
-    hydrateSession(state, action: PayloadAction<string | null>) {
-      state.currentUserId = action.payload;
+    hydrateSession(state, action: PayloadAction<SessionUser | null>) {
+      state.currentUser = action.payload;
       state.hydrated = true;
     },
-    signIn(state, action: PayloadAction<string>) {
-      state.currentUserId = action.payload;
+    signIn(state, action: PayloadAction<SessionUser>) {
+      state.currentUser = action.payload;
       state.hydrated = true;
     },
     signOut(state) {
-      state.currentUserId = null;
+      state.currentUser = null;
       state.hydrated = true;
     },
   },
@@ -37,9 +37,10 @@ const authSlice = createSlice({
 export const { hydrateSession, signIn, signOut } = authSlice.actions;
 
 export const selectAuthState = (state: RootState) => state.auth;
-export const selectCurrentUser = (state: RootState) =>
-  getUserById(state.auth.currentUserId);
+export const selectCurrentUser = (state: RootState) => state.auth.currentUser;
+export const selectCurrentUserId = (state: RootState) =>
+  state.auth.currentUser?.id ?? null;
 export const selectCurrentRoleId = (state: RootState) =>
-  getUserById(state.auth.currentUserId)?.roleId ?? null;
+  state.auth.currentUser?.roleId ?? null;
 
 export default authSlice.reducer;

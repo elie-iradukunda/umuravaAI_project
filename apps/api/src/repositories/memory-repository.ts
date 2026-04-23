@@ -4,12 +4,20 @@ import type {
   CreateJobInput,
   DashboardSummary,
   JobRecord,
+  NotificationReadRecord,
   ScreeningResultRecord,
   StoredUserRecord,
+  TalentProfileRecord,
   UpdateJobInput,
 } from "@umurava/shared";
 
-import type { CreateStoredUserInput, Repository } from "./types.js";
+import type {
+  CreateApplicantsOptions,
+  CreateStoredUserInput,
+  DashboardSummaryOptions,
+  ListJobsOptions,
+  Repository,
+} from "./types.js";
 import {
   computeAverageMatchScore,
   markApplicantAsReady,
@@ -18,6 +26,8 @@ import {
   sortByCreatedAtDesc,
   withApplicantRecord,
   withJobRecord,
+  withNotificationReadRecord,
+  withTalentProfileRecord,
   withUserRecord,
 } from "./utils.js";
 
@@ -28,10 +38,17 @@ export class MemoryRepository implements Repository {
   private applicants = new Map<string, ApplicantRecord>();
   private screenings = new Map<string, ScreeningResultRecord>();
   private users = new Map<string, StoredUserRecord>();
+  private talentProfiles = new Map<string, TalentProfileRecord>();
+  private notificationReads = new Map<string, NotificationReadRecord>();
 
-  async listJobs(): Promise<JobRecord[]> {
+  async listJobs(options: ListJobsOptions = {}): Promise<JobRecord[]> {
     return sortByCreatedAtDesc(
-      Array.from(this.jobs.values()).map((item) => structuredClone(item))
+      Array.from(this.jobs.values())
+        .filter(
+          (item) =>
+            !options.ownerUserId || item.ownerUserId === options.ownerUserId
+        )
+        .map((item) => structuredClone(item))
     );
   }
 
@@ -40,8 +57,8 @@ export class MemoryRepository implements Repository {
     return job ? structuredClone(job) : null;
   }
 
-  async createJob(input: CreateJobInput): Promise<JobRecord> {
-    const job = withJobRecord(input);
+  async createJob(ownerUserId: string, input: CreateJobInput): Promise<JobRecord> {
+    const job = withJobRecord(ownerUserId, input);
     this.jobs.set(job.id, job);
     return structuredClone(job);
   }
@@ -67,15 +84,28 @@ export class MemoryRepository implements Repository {
 
   async createApplicants(
     jobId: string,
-    inputs: CreateApplicantInput[]
+    inputs: CreateApplicantInput[],
+    options: CreateApplicantsOptions = {}
   ): Promise<ApplicantRecord[]> {
-    const created = inputs.map((input) => withApplicantRecord(jobId, input));
+    const created = inputs.map((input) =>
+      withApplicantRecord(jobId, input, {
+        submittedByUserId: options.submittedByUserId ?? null,
+      })
+    );
 
     created.forEach((record) => {
       this.applicants.set(record.id, record);
     });
 
     return created.map((item) => structuredClone(item));
+  }
+
+  async listApplicantsBySubmittedUser(userId: string): Promise<ApplicantRecord[]> {
+    return sortByCreatedAtDesc(
+      Array.from(this.applicants.values())
+        .filter((item) => item.submittedByUserId === userId)
+        .map((item) => structuredClone(item))
+    );
   }
 
   async resetJobScreening(jobId: string): Promise<void> {
@@ -124,14 +154,25 @@ export class MemoryRepository implements Repository {
     return screenings.map((item) => structuredClone(item));
   }
 
-  async getDashboardSummary(): Promise<DashboardSummary> {
+  async getDashboardSummary(
+    options: DashboardSummaryOptions = {}
+  ): Promise<DashboardSummary> {
+    const scopedJobs = Array.from(this.jobs.values()).filter(
+      (job) => !options.ownerUserId || job.ownerUserId === options.ownerUserId
+    );
+    const scopedJobIds = new Set(scopedJobs.map((job) => job.id));
+    const scopedApplicants = Array.from(this.applicants.values()).filter((applicant) =>
+      scopedJobIds.has(applicant.jobId)
+    );
+    const scopedScreenings = Array.from(this.screenings.values()).filter((screening) =>
+      scopedJobIds.has(screening.jobId)
+    );
+
     return {
-      totalJobs: this.jobs.size,
-      totalApplicants: this.applicants.size,
-      screenedApplicants: this.screenings.size,
-      averageMatchScore: computeAverageMatchScore([
-        ...this.screenings.values(),
-      ]),
+      totalJobs: scopedJobs.length,
+      totalApplicants: scopedApplicants.length,
+      screenedApplicants: scopedScreenings.length,
+      averageMatchScore: computeAverageMatchScore(scopedScreenings),
     };
   }
 
@@ -156,25 +197,75 @@ export class MemoryRepository implements Repository {
     return structuredClone(user);
   }
 
-  async seedIfEmpty(seed: {
-    jobs: JobRecord[];
-    applicants: ApplicantRecord[];
-    screenings: ScreeningResultRecord[];
-  }): Promise<void> {
-    if (this.jobs.size > 0) {
-      return;
+  async getTalentProfileByUserId(
+    userId: string
+  ): Promise<TalentProfileRecord | null> {
+    const profile = this.talentProfiles.get(userId);
+    return profile ? structuredClone(profile) : null;
+  }
+
+  async upsertTalentProfile(
+    userId: string,
+    input: CreateApplicantInput
+  ): Promise<TalentProfileRecord> {
+    const current = this.talentProfiles.get(userId);
+    const profile = withTalentProfileRecord(userId, input, {
+      id: current?.id,
+      createdAt: current?.createdAt,
+      updatedAt: new Date().toISOString(),
+    });
+
+    this.talentProfiles.set(userId, profile);
+    return structuredClone(profile);
+  }
+
+  async listNotificationReadsByUserId(
+    userId: string
+  ): Promise<NotificationReadRecord[]> {
+    return sortByCreatedAtDesc(
+      Array.from(this.notificationReads.values())
+        .filter((item) => item.userId === userId)
+        .map((item) => structuredClone(item))
+    );
+  }
+
+  async markNotificationsRead(
+    userId: string,
+    notificationIds: string[]
+  ): Promise<NotificationReadRecord[]> {
+    const notificationIdSet = new Set(
+      notificationIds.map((item) => item.trim()).filter(Boolean)
+    );
+
+    if (notificationIdSet.size === 0) {
+      return this.listNotificationReadsByUserId(userId);
     }
 
-    seed.jobs.forEach((job) => {
-      this.jobs.set(job.id, structuredClone(job));
+    const now = new Date().toISOString();
+
+    notificationIdSet.forEach((notificationId) => {
+      const existing = Array.from(this.notificationReads.values()).find(
+        (item) =>
+          item.userId === userId && item.notificationId === notificationId
+      );
+
+      if (existing) {
+        this.notificationReads.set(existing.id, {
+          ...existing,
+          readAt: now,
+          updatedAt: now,
+        });
+        return;
+      }
+
+      const created = withNotificationReadRecord(userId, notificationId, {
+        readAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+      this.notificationReads.set(created.id, created);
     });
 
-    seed.applicants.forEach((applicant) => {
-      this.applicants.set(applicant.id, structuredClone(applicant));
-    });
-
-    seed.screenings.forEach((screening) => {
-      this.screenings.set(screening.id, structuredClone(screening));
-    });
+    return this.listNotificationReadsByUserId(userId);
   }
 }

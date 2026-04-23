@@ -17,6 +17,8 @@ const userSchema = new Schema(
     passwordHash: { type: String, required: true, trim: true },
     roleId: { type: String, required: true, trim: true },
     location: { type: String, required: true, trim: true },
+    talentProfile: { type: Schema.Types.Mixed, default: null },
+    talentProfileUpdatedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

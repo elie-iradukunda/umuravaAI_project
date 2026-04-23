@@ -77,7 +77,7 @@ export const TalentJobDetailPage = ({ jobId }: TalentJobDetailPageProps) => {
           This page is reserved for the talent account
         </h2>
         <p className="section-copy">
-          Switch to the demo talent login if you want to review a job in detail
+          Sign in with a talent account if you want to review a job in detail
           before applying.
         </p>
       </div>

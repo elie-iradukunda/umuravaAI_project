@@ -7,10 +7,12 @@ import type {
   JobDetailResponse,
   JobRecord,
   LoginInput,
+  NotificationsResponse,
   PublicJobResponse,
   PublicJobsResponse,
   ScreeningResultRecord,
   TalentApplicationsResponse,
+  TalentProfileResponse,
   UpdateJobInput,
 } from "@umurava/shared";
 
@@ -18,6 +20,14 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 
 const buildUrl = (path: string) => `${API_BASE_URL}${path}`;
+
+const withAuthHeaders = (
+  userId: string,
+  headers: HeadersInit = {}
+): HeadersInit => ({
+  ...headers,
+  "X-User-Id": userId,
+});
 
 const parseResponse = async <T>(response: Response): Promise<T> => {
   const data = (await response.json().catch(() => ({}))) as T & {
@@ -63,9 +73,26 @@ export const api = {
       },
       body: JSON.stringify(input),
     }),
-  getDashboard: async (): Promise<DashboardResponse> =>
+  getDashboard: async (userId: string): Promise<DashboardResponse> =>
     request<DashboardResponse>("/api/dashboard", {
+      headers: withAuthHeaders(userId),
       cache: "no-store",
+    }),
+  getNotifications: async (userId: string): Promise<NotificationsResponse> =>
+    request<NotificationsResponse>("/api/notifications", {
+      headers: withAuthHeaders(userId),
+      cache: "no-store",
+    }),
+  markNotificationsRead: async (
+    userId: string,
+    notificationIds: string[]
+  ): Promise<NotificationsResponse> =>
+    request<NotificationsResponse>("/api/notifications/read", {
+      method: "POST",
+      headers: withAuthHeaders(userId, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify({ notificationIds }),
     }),
   getPublicJobs: async (): Promise<PublicJobsResponse> =>
     request<PublicJobsResponse>("/api/public/jobs", {
@@ -76,6 +103,7 @@ export const api = {
       cache: "no-store",
     }),
   uploadTalentResume: async (
+    userId: string,
     file: File
   ): Promise<{ fileName: string; resumeText: string; summaryExcerpt: string }> => {
     const formData = new FormData();
@@ -85,64 +113,88 @@ export const api = {
       "/api/talent/resume-upload",
       {
         method: "POST",
+        headers: withAuthHeaders(userId),
         body: formData,
       }
     );
   },
-  getTalentApplications: async (
-    email: string,
-    fullName?: string
-  ): Promise<TalentApplicationsResponse> => {
-    const params = new URLSearchParams();
-    if (email.trim()) {
-      params.set("email", email.trim());
-    }
-    if (fullName?.trim()) {
-      params.set("fullName", fullName.trim());
-    }
-
-    return request<TalentApplicationsResponse>(
-      `/api/talent-applications?${params.toString()}`,
-      {
-        cache: "no-store",
-      }
-    );
-  },
-  getJobDetail: async (jobId: string): Promise<JobDetailResponse> =>
-    request<JobDetailResponse>(`/api/jobs/${jobId}`, {
+  getTalentProfile: async (userId: string): Promise<TalentProfileResponse> =>
+    request<TalentProfileResponse>("/api/talent/profile", {
+      headers: withAuthHeaders(userId),
       cache: "no-store",
     }),
-  createJob: async (input: CreateJobInput): Promise<{ job: JobRecord }> =>
+  saveTalentProfile: async (
+    userId: string,
+    input: CreateApplicantInput
+  ): Promise<TalentProfileResponse> =>
+    request<TalentProfileResponse>("/api/talent/profile", {
+      method: "PUT",
+      headers: withAuthHeaders(userId, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify(input),
+    }),
+  getTalentApplications: async (
+    userId: string
+  ): Promise<TalentApplicationsResponse> =>
+    request<TalentApplicationsResponse>("/api/talent-applications", {
+      headers: withAuthHeaders(userId),
+      cache: "no-store",
+    }),
+  getJobDetail: async (userId: string, jobId: string): Promise<JobDetailResponse> =>
+    request<JobDetailResponse>(`/api/jobs/${jobId}`, {
+      headers: withAuthHeaders(userId),
+      cache: "no-store",
+    }),
+  createJob: async (
+    userId: string,
+    input: CreateJobInput
+  ): Promise<{ job: JobRecord }> =>
     request<{ job: JobRecord }>("/api/jobs", {
       method: "POST",
-      headers: {
+      headers: withAuthHeaders(userId, {
         "Content-Type": "application/json",
-      },
+      }),
       body: JSON.stringify(input),
     }),
   updateJob: async (
+    userId: string,
     jobId: string,
     input: UpdateJobInput
   ): Promise<{ job: JobRecord }> =>
     request<{ job: JobRecord }>(`/api/jobs/${jobId}`, {
       method: "PUT",
-      headers: {
+      headers: withAuthHeaders(userId, {
         "Content-Type": "application/json",
-      },
+      }),
       body: JSON.stringify(input),
     }),
   addApplicants: async (
+    userId: string,
     jobId: string,
     applicants: CreateApplicantInput[]
   ): Promise<{ importedCount: number }> =>
     request<{ importedCount: number }>(`/api/jobs/${jobId}/applicants`, {
       method: "POST",
-      headers: {
+      headers: withAuthHeaders(userId, {
         "Content-Type": "application/json",
-      },
+      }),
       body: JSON.stringify(applicants),
     }),
+  applyToJob: async (
+    userId: string,
+    jobId: string,
+    applicant: CreateApplicantInput
+  ): Promise<{ importedCount: number }> =>
+    request<{ importedCount: number }>(`/api/talent/jobs/${jobId}/apply`, {
+      method: "POST",
+      headers: withAuthHeaders(userId, {
+        "Content-Type": "application/json",
+      }),
+      body: JSON.stringify(applicant),
+    }),
   uploadApplicants: async (
+    userId: string,
     jobId: string,
     files: File[]
   ): Promise<{ importedCount: number; warnings?: string[] }> => {
@@ -153,17 +205,20 @@ export const api = {
       `/api/jobs/${jobId}/applicants/upload`,
       {
         method: "POST",
+        headers: withAuthHeaders(userId),
         body: formData,
       }
     );
   },
   runScreening: async (
+    userId: string,
     jobId: string
   ): Promise<{ screenings: ScreeningResultRecord[] }> =>
     request<{ screenings: ScreeningResultRecord[] }>(
       `/api/jobs/${jobId}/screenings/run`,
       {
         method: "POST",
+        headers: withAuthHeaders(userId),
       }
     ),
 };

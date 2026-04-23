@@ -23,7 +23,20 @@ const envSchema = z.object({
     },
     z.string().url().optional()
   ),
-  SCREENING_PROVIDER: z.enum(["mock", "gemini"]).default("mock"),
+  SCREENING_PROVIDER: z.preprocess(
+    (value) => {
+      const normalized = String(value ?? "")
+        .trim()
+        .toLowerCase();
+
+      if (!normalized || normalized === "mock") {
+        return "gemini";
+      }
+
+      return normalized;
+    },
+    z.enum(["gemini"]).default("gemini")
+  ),
   GEMINI_API_KEY: z.preprocess(
     (value) => {
       const normalized = String(value ?? "").trim();
@@ -33,10 +46,6 @@ const envSchema = z.object({
   ),
   GEMINI_SCREENING_MODEL: z.string().trim().min(1).default("gemini-2.5-flash"),
   GEMINI_DOCUMENT_MODEL: z.string().trim().min(1).default("gemini-2.5-flash"),
-  AUTO_SEED_DEMO: z
-    .union([z.literal("true"), z.literal("false")])
-    .default("true")
-    .transform((value) => value === "true"),
 });
 
 export const env = envSchema.parse(process.env);

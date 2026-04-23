@@ -19,6 +19,7 @@ import type { Repository } from "../repositories/types.js";
 import {
   isGeminiConfigured,
   screenApplicantWithGemini,
+  toGeminiHttpError,
 } from "./gemini.service.js";
 
 const skillLevelScore: Record<SkillLevel, number> = {
@@ -424,39 +425,6 @@ export const buildScreeningOverview = (
   };
 };
 
-const buildMockAssessment = (
-  job: JobRecord,
-  applicant: ApplicantRecord
-): {
-  breakdown: ScreeningBreakdown;
-  finalScore: number;
-  reasoning: CandidateReasoning;
-  provider: ScreeningProvider;
-  decision: ScreeningSignals["decision"];
-  confidence: ScreeningSignals["confidence"];
-  riskLevel: ScreeningSignals["riskLevel"];
-  matchedSkills: ScreeningSignals["matchedSkills"];
-  missingSkills: ScreeningSignals["missingSkills"];
-} => {
-  const breakdown: ScreeningBreakdown = {
-    skills: getSkillScore(job, applicant),
-    experience: getExperienceScore(job, applicant),
-    education: getEducationScore(job, applicant),
-    relevance: getRelevanceScore(job, applicant),
-  };
-
-  const finalScore = computeFinalScore(breakdown);
-  const signals = buildScreeningSignals(job, applicant, breakdown, finalScore);
-
-  return {
-    breakdown,
-    finalScore,
-    reasoning: buildReasoning(job, applicant, breakdown, finalScore),
-    provider: "mock",
-    ...signals,
-  };
-};
-
 const toScreeningRecords = (
   job: JobRecord,
   entries: Array<{
@@ -492,23 +460,9 @@ const toScreeningRecords = (
       createdAt: new Date().toISOString(),
     }));
 
-const buildMockScreenings = (
-  job: JobRecord,
-  applicants: ApplicantRecord[]
-): ScreeningResultRecord[] =>
-  toScreeningRecords(
-    job,
-    applicants.map((applicant) => ({
-      applicant,
-      ...buildMockAssessment(job, applicant),
-    }))
-  );
-
-const assertProviderReady = (provider: ScreeningProvider): void => {
-  if (provider === "gemini" && !isGeminiConfigured()) {
-    throw new Error(
-      "SCREENING_PROVIDER is set to gemini, but GEMINI_API_KEY is missing in apps/api/.env."
-    );
+const assertGeminiReady = (): void => {
+  if (!isGeminiConfigured()) {
+    throw new Error("GEMINI_API_KEY is missing in apps/api/.env.");
   }
 };
 
@@ -518,35 +472,23 @@ const buildGeminiScreenings = async (
 ): Promise<ScreeningResultRecord[]> => {
   const evaluations = await Promise.all(
     applicants.map(async (applicant) => {
-      try {
-        const assessment = await screenApplicantWithGemini(job, applicant);
-        const finalScore = computeFinalScore(assessment.breakdown);
-        const signals = buildScreeningSignals(
-          job,
-          applicant,
-          assessment.breakdown,
-          finalScore
-        );
+      const assessment = await screenApplicantWithGemini(job, applicant);
+      const finalScore = computeFinalScore(assessment.breakdown);
+      const signals = buildScreeningSignals(
+        job,
+        applicant,
+        assessment.breakdown,
+        finalScore
+      );
 
-        return {
-          applicant,
-          breakdown: assessment.breakdown,
-          finalScore,
-          reasoning: assessment.reasoning,
-          provider: "gemini" as const,
-          ...signals,
-        };
-      } catch (error) {
-        console.warn(
-          `Gemini screening failed for ${applicant.fullName}. Falling back to mock scoring.`,
-          error
-        );
-
-        return {
-          applicant,
-          ...buildMockAssessment(job, applicant),
-        };
-      }
+      return {
+        applicant,
+        breakdown: assessment.breakdown,
+        finalScore,
+        reasoning: assessment.reasoning,
+        provider: "gemini" as const,
+        ...signals,
+      };
     })
   );
 
@@ -567,12 +509,19 @@ export const runScreeningForJob = async (
     throw new Error("Add applicants before running screening.");
   }
 
-  assertProviderReady(env.SCREENING_PROVIDER);
+  assertGeminiReady();
 
-  const screenings =
-    env.SCREENING_PROVIDER === "gemini"
-      ? await buildGeminiScreenings(job, applicants)
-      : buildMockScreenings(job, applicants);
+  let screenings: ScreeningResultRecord[];
+
+  try {
+    screenings = await buildGeminiScreenings(job, applicants);
+  } catch (error) {
+    throw toGeminiHttpError(
+      error,
+      "Gemini could not complete the screening run right now."
+    );
+  }
+
   await repository.replaceScreenings(jobId, screenings);
   await repository.markApplicantsScreened(jobId);
   return screenings;

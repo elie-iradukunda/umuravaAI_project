@@ -91,3 +91,8 @@ export const platformUsers: PlatformUser[] = [
     },
   },
 ];
+
+export const getPlatformUserDetails = (roleId: PlatformUserId) =>
+  platformUsers.find((role) => role.id === roleId) ??
+  platformUsers.find((role) => role.id === "job-owner") ??
+  platformUsers[0];
