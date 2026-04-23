@@ -93,28 +93,6 @@ export const buildJobFormValues = (job?: JobRecord): JobFormValues => ({
     })) ?? [{ name: "", requiredLevel: "intermediate" }],
 });
 
-export const sampleJobFormValues = (): JobFormValues => ({
-  title: "Customer Support Specialist",
-  department: "Customer Experience",
-  location: "Kigali, Rwanda",
-  employmentType: "full-time",
-  summary:
-    "We are hiring a Customer Support Specialist to help clients across email, chat, and phone, resolve issues quickly, and keep service quality consistently high. The role works closely with operations and product teams to surface recurring customer pain points and improve the support experience.",
-  idealCandidate:
-    "An ideal candidate communicates clearly, is comfortable using CRM and ticketing tools, can stay calm under pressure, documents issues well, and has experience supporting customers in a fast-moving digital product or service environment.",
-  minimumExperienceYears: 2,
-  shortlistLimit: 10,
-  educationPreferencesText:
-    "Business Information Technology, Business Administration, Customer Relations, Communication",
-  requiredSkills: [
-    { name: "Customer Support", requiredLevel: "advanced" },
-    { name: "Communication", requiredLevel: "expert" },
-    { name: "CRM Tools", requiredLevel: "intermediate" },
-    { name: "Problem Solving", requiredLevel: "advanced" },
-    { name: "Documentation", requiredLevel: "intermediate" },
-  ],
-});
-
 export const buildJobPayload = (values: JobFormValues): CreateJobInput => ({
   title: values.title.trim(),
   department: values.department.trim(),

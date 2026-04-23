@@ -4,9 +4,14 @@ import type {
   CreateApplicantInput,
   LanguageProficiency,
   SkillLevel,
+  TalentProfileRecord,
 } from "@umurava/shared";
 
-import type { DemoUser } from "./demo-users";
+export type TalentProfileUser = {
+  name?: string;
+  email?: string;
+  location?: string;
+};
 
 export type TalentSkillFormValue = {
   name: string;
@@ -78,32 +83,9 @@ export type TalentProfileValues = {
   tagsText: string;
 };
 
-export const talentProfileStorageKey = "umurava-talent-profile";
-
-const getTalentProfileStorageKey = (
-  user?: Pick<DemoUser, "email">
-) => {
-  const normalizedEmail = user?.email?.trim().toLowerCase();
-  return normalizedEmail
-    ? `${talentProfileStorageKey}:${normalizedEmail}`
-    : talentProfileStorageKey;
-};
-
 const splitCommaValues = (value: string): string[] =>
   value
     .split(/[,;\n]/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-const splitLineValues = (value: string): string[] =>
-  value
-    .split(/\r?\n/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-const splitPipeLine = (line: string): string[] =>
-  line
-    .split("|")
     .map((item) => item.trim())
     .filter(Boolean);
 
@@ -111,9 +93,6 @@ const toNumber = (value: string | number | undefined): number | undefined => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
 };
-
-const toBoolean = (value: string): boolean =>
-  ["true", "yes", "1", "current", "present"].includes(value.trim().toLowerCase());
 
 const defaultSkillYearsByLevel: Record<SkillLevel, number> = {
   beginner: 0.5,
@@ -179,263 +158,120 @@ const blankProject = (): TalentProjectFormValue => ({
   description: "",
 });
 
-const migrateLegacyDraft = (value: Record<string, unknown>): Partial<TalentProfileValues> => {
-  const skillsText = String(value.skillsText ?? "");
-  const languagesText = String(value.languagesText ?? "");
-  const experienceText = String(value.experienceText ?? "");
-  const educationText = String(value.educationText ?? "");
-  const certificationsText = String(value.certificationsText ?? "");
-  const projectsText = String(value.projectsText ?? "");
-
-  return {
-    fullName: String(value.fullName ?? ""),
-    headline: String(value.headline ?? ""),
-    email: String(value.email ?? ""),
-    phone: String(value.phone ?? ""),
-    location: String(value.location ?? ""),
-    profileSummary: String(value.profileSummary ?? ""),
-    totalExperienceYears: Number(value.totalExperienceYears ?? 0),
-    resumeUrl: String(value.resumeUrl ?? ""),
-    resumeFileName: String(value.resumeFileName ?? ""),
-    resumeText: String(value.resumeText ?? ""),
-    availabilityStatus:
-      (value.availabilityStatus as AvailabilityStatus | undefined) ?? "available",
-    availabilityType:
-      (value.availabilityType as AvailabilityType | undefined) ?? "full-time",
-    availabilityStartDate: String(value.availabilityStartDate ?? ""),
-    linkedinUrl: String(value.linkedinUrl ?? ""),
-    githubUrl: String(value.githubUrl ?? ""),
-    portfolioUrl: String(value.portfolioUrl ?? ""),
-    skills: splitLineValues(skillsText).map((line) => {
-      const [name = "", level = "intermediate", years = "0"] = splitPipeLine(line);
-      return {
-        name,
-        level: level as SkillLevel,
-      };
-    }),
-    languages: splitLineValues(languagesText).map((line) => {
-      const [name = "", proficiency = "conversational"] = splitPipeLine(line);
-      return {
-        name,
-        proficiency: proficiency as LanguageProficiency,
-      };
-    }),
-    experience: splitLineValues(experienceText).map((line) => {
-      const [
-        company = "",
-        role = "",
-        startDate = "",
-        endDate = "",
-        description = "",
-        technologiesText = "",
-        isCurrent = "",
-      ] = splitPipeLine(line);
-      return {
-        company,
-        role,
-        startDate,
-        endDate,
-        description,
-        technologiesText,
-        isCurrent: isCurrent ? toBoolean(isCurrent) : !endDate,
-      };
-    }),
-    education: splitLineValues(educationText).map((line) => {
-      const [institution = "", degree = "", fieldOfStudy = "", startYear = "", endYear = ""] =
-        splitPipeLine(line);
-      return {
-        institution,
-        degree,
-        fieldOfStudy,
-        startYear,
-        endYear,
-      };
-    }),
-    certifications: splitLineValues(certificationsText).map((line) => {
-      const [name = "", issuer = "", issueDate = ""] = splitPipeLine(line);
-      return { name, issuer, issueDate };
-    }),
-    projects: splitLineValues(projectsText).map((line) => {
-      const [
-        name = "",
-        role = "",
-        startDate = "",
-        endDate = "",
-        technologiesText = "",
-        link = "",
-        description = "",
-      ] = splitPipeLine(line);
-      return {
-        name,
-        role,
-        startDate,
-        endDate,
-        technologiesText,
-        link,
-        description,
-      };
-    }),
-    tagsText: String(value.tagsText ?? ""),
-  };
-};
-
 export const buildTalentProfileDefaults = (
-  user?: Pick<DemoUser, "name" | "email" | "location">
+  user?: TalentProfileUser
 ): TalentProfileValues => ({
   fullName: user?.name ?? "",
-  headline: "Customer Support Specialist",
+  headline: "",
   email: user?.email ?? "",
   phone: "",
   location: user?.location ?? "",
-  profileSummary:
-    "Support-focused professional with strong communication skills, CRM experience, and a track record of resolving customer issues effectively.",
-  totalExperienceYears: 2,
+  profileSummary: "",
+  totalExperienceYears: 0,
   resumeUrl: "",
   resumeFileName: "",
   resumeText: "",
-  availabilityStatus: "available",
+  availabilityStatus: "open-to-opportunities",
   availabilityType: "full-time",
   availabilityStartDate: "",
-  linkedinUrl: "https://www.linkedin.com/in/elie-demo",
+  linkedinUrl: "",
   githubUrl: "",
-  portfolioUrl: "https://portfolio.example.com/elie",
-  skills: [
-    { name: "Customer Support", level: "advanced" },
-    { name: "Communication", level: "expert" },
-    { name: "CRM Tools", level: "intermediate" },
-  ],
-  languages: [
-    { name: "English", proficiency: "fluent" },
-    { name: "Kinyarwanda", proficiency: "native" },
-  ],
-  experience: [
-    {
-      company: "Umurava Support Desk",
-      role: "Customer Support Associate",
-      startDate: "2023-01",
-      endDate: "",
-      description:
-        "Resolved client issues across email and WhatsApp while documenting escalations and improving response quality.",
-      technologiesText: "Zendesk, Freshdesk, Google Workspace",
-      isCurrent: true,
-    },
-  ],
-  education: [
-    {
-      institution: "University of Rwanda",
-      degree: "Bachelor's",
-      fieldOfStudy: "Business Information Technology",
-      startYear: "2019",
-      endYear: "2023",
-    },
-  ],
-  certifications: [
-    {
-      name: "Customer Service Foundations",
-      issuer: "LinkedIn Learning",
-      issueDate: "2024-01",
-    },
-  ],
-  projects: [
-    {
-      name: "Ticket Resolution Knowledge Base",
-      role: "Support Contributor",
-      startDate: "2024-01",
-      endDate: "",
-      technologiesText: "Notion, Google Docs",
-      link: "https://example.com",
-      description:
-        "Built internal response templates and FAQ updates for recurring customer issues.",
-    },
-  ],
-  tagsText: "customer support, communication, crm",
+  portfolioUrl: "",
+  skills: [blankSkill()],
+  languages: [blankLanguage()],
+  experience: [blankExperience()],
+  education: [blankEducation()],
+  certifications: [blankCertification()],
+  projects: [blankProject()],
+  tagsText: "",
 });
 
-export const loadTalentProfileDraft = (
-  user?: Pick<DemoUser, "name" | "email" | "location">
+export const buildTalentProfileValues = (
+  profile?: TalentProfileRecord | null,
+  user?: TalentProfileUser
 ): TalentProfileValues => {
   const defaults = buildTalentProfileDefaults(user);
-  const scopedStorageKey = getTalentProfileStorageKey(user);
 
-  if (typeof window === "undefined") {
+  if (!profile) {
     return defaults;
   }
 
-  try {
-    const scopedRaw = window.localStorage.getItem(scopedStorageKey);
-    const legacyRaw = window.localStorage.getItem(talentProfileStorageKey);
-
-    const raw = scopedRaw ?? legacyRaw;
-    if (!raw) {
-      return defaults;
-    }
-
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
-    const migrated = Array.isArray(parsed.skills)
-      ? (parsed as Partial<TalentProfileValues>)
-      : migrateLegacyDraft(parsed);
-
-    const normalizedDraftEmail = String(migrated.email ?? "")
-      .trim()
-      .toLowerCase();
-    const normalizedUserEmail = user?.email?.trim().toLowerCase() ?? "";
-
-    if (
-      raw === legacyRaw &&
-      normalizedUserEmail &&
-      normalizedDraftEmail &&
-      normalizedDraftEmail !== normalizedUserEmail
-    ) {
-      return defaults;
-    }
-
-    return {
-      ...defaults,
-      ...migrated,
-      fullName: String(migrated.fullName ?? defaults.fullName),
-      email: String(migrated.email ?? defaults.email),
-      location: String(migrated.location ?? defaults.location),
-      skills: Array.isArray(migrated.skills) ? migrated.skills : defaults.skills,
-      languages: Array.isArray(migrated.languages)
-        ? migrated.languages
+  return {
+    ...defaults,
+    fullName: profile.fullName || defaults.fullName,
+    headline: profile.headline || "",
+    email: profile.email || defaults.email,
+    phone: profile.phone || "",
+    location: profile.location || defaults.location,
+    profileSummary: profile.profileSummary || "",
+    totalExperienceYears: profile.totalExperienceYears || 0,
+    resumeUrl: profile.resumeUrl || "",
+    resumeFileName: profile.resumeFileName || "",
+    resumeText: profile.resumeText || "",
+    availabilityStatus: profile.availability.status,
+    availabilityType: profile.availability.type,
+    availabilityStartDate: profile.availability.startDate || "",
+    linkedinUrl: profile.socialLinks.linkedin || "",
+    githubUrl: profile.socialLinks.github || "",
+    portfolioUrl: profile.socialLinks.portfolio || "",
+    skills:
+      profile.skills.length > 0
+        ? profile.skills.map((item) => ({
+            name: item.name,
+            level: item.level,
+          }))
+        : defaults.skills,
+    languages:
+      profile.languages.length > 0
+        ? profile.languages.map((item) => ({
+            name: item.name,
+            proficiency: item.proficiency,
+          }))
         : defaults.languages,
-      experience: Array.isArray(migrated.experience)
-        ? migrated.experience
+    experience:
+      profile.experience.length > 0
+        ? profile.experience.map((item) => ({
+            company: item.company,
+            role: item.role,
+            startDate: item.startDate,
+            endDate: item.endDate || "",
+            description: item.description,
+            technologiesText: item.technologies.join(", "),
+            isCurrent: item.isCurrent,
+          }))
         : defaults.experience,
-      education: Array.isArray(migrated.education)
-        ? migrated.education
+    education:
+      profile.education.length > 0
+        ? profile.education.map((item) => ({
+            institution: item.institution,
+            degree: item.degree,
+            fieldOfStudy: item.fieldOfStudy,
+            startYear: item.startYear == null ? "" : String(item.startYear),
+            endYear: item.endYear == null ? "" : String(item.endYear),
+          }))
         : defaults.education,
-      certifications: Array.isArray(migrated.certifications)
-        ? migrated.certifications
+    certifications:
+      profile.certifications.length > 0
+        ? profile.certifications.map((item) => ({
+            name: item.name,
+            issuer: item.issuer,
+            issueDate: item.issueDate || "",
+          }))
         : defaults.certifications,
-      projects: Array.isArray(migrated.projects)
-        ? migrated.projects
+    projects:
+      profile.projects.length > 0
+        ? profile.projects.map((item) => ({
+            name: item.name,
+            role: item.role,
+            startDate: item.startDate,
+            endDate: item.endDate || "",
+            technologiesText: item.technologies.join(", "),
+            link: item.link || "",
+            description: item.description,
+          }))
         : defaults.projects,
-    };
-  } catch {
-    return defaults;
-  }
-};
-
-export const saveTalentProfileDraft = (
-  values: TalentProfileValues,
-  user?: Pick<DemoUser, "email">
-) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const scopedStorageKey = getTalentProfileStorageKey(user);
-  window.localStorage.setItem(scopedStorageKey, JSON.stringify(values));
-};
-
-export const clearTalentProfileDraft = (user?: Pick<DemoUser, "email">) => {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  const scopedStorageKey = getTalentProfileStorageKey(user);
-  window.localStorage.removeItem(scopedStorageKey);
+    tagsText: profile.tags.join(", "),
+  };
 };
 
 export const estimateTalentProfileCompletion = (values: TalentProfileValues) => {

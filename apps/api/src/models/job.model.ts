@@ -15,6 +15,7 @@ const jobSkillSchema = new Schema(
 const jobSchema = new Schema(
   {
     id: { type: String, required: true, unique: true, index: true },
+    ownerUserId: { type: String, required: true, index: true },
     title: { type: String, required: true, trim: true },
     department: { type: String, required: true, trim: true },
     location: { type: String, required: true, trim: true },

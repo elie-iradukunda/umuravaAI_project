@@ -36,7 +36,7 @@ export const TalentApplicationsPage = () => {
       setError("");
 
       try {
-        const response = await api.getTalentApplications(currentUser.email);
+        const response = await api.getTalentApplications(currentUser.id);
         if (!active) {
           return;
         }
@@ -72,7 +72,7 @@ export const TalentApplicationsPage = () => {
           This page is reserved for the talent account
         </h2>
         <p className="section-copy">
-          Switch to the demo talent login if you want to review submitted job
+          Sign in with a talent account if you want to review submitted job
           applications.
         </p>
       </div>

@@ -2,16 +2,16 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
-import { CheckCircle2, RotateCcw, Save, Trash2 } from "lucide-react";
+import { CheckCircle2, RotateCcw, Save } from "lucide-react";
 
+import { api } from "../../lib/api";
 import { selectCurrentUser } from "../../store/auth-slice";
 import { useAppSelector } from "../../store/hooks";
 import {
   buildTalentProfileDefaults,
-  clearTalentProfileDraft,
+  buildTalentProfilePayload,
+  buildTalentProfileValues,
   estimateTalentProfileCompletion,
-  loadTalentProfileDraft,
-  saveTalentProfileDraft,
   type TalentProfileValues,
 } from "../../lib/talent-profile";
 import { TalentProfileFields } from "./talent-profile-fields";
@@ -19,13 +19,54 @@ import { TalentProfileFields } from "./talent-profile-fields";
 export const TalentProfilePage = () => {
   const currentUser = useAppSelector(selectCurrentUser);
   const [savedAt, setSavedAt] = useState<string>("");
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+  const [profileError, setProfileError] = useState("");
 
   const form = useForm<TalentProfileValues>({
     defaultValues: buildTalentProfileDefaults(currentUser ?? undefined),
   });
 
   useEffect(() => {
-    form.reset(loadTalentProfileDraft(currentUser ?? undefined));
+    if (!currentUser || currentUser.roleId !== "talent") {
+      return;
+    }
+
+    let active = true;
+
+    const loadProfile = async () => {
+      setIsLoadingProfile(true);
+      setProfileError("");
+
+      try {
+        const response = await api.getTalentProfile(currentUser.id);
+        if (!active) {
+          return;
+        }
+
+        form.reset(buildTalentProfileValues(response.profile, currentUser));
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setProfileError(
+          error instanceof Error
+            ? error.message
+            : "Could not load your saved profile."
+        );
+        form.reset(buildTalentProfileDefaults(currentUser));
+      } finally {
+        if (active) {
+          setIsLoadingProfile(false);
+        }
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
   }, [currentUser, form]);
 
   const values = form.watch();
@@ -42,25 +83,39 @@ export const TalentProfilePage = () => {
           This page is reserved for the talent account
         </h2>
         <p className="section-copy">
-          Switch to the demo talent login if you want to fill a candidate profile
-          and apply to jobs.
+          Sign in with a talent account if you want to manage a candidate
+          profile and apply to jobs.
         </p>
       </div>
     );
   }
 
-  const handleSave = form.handleSubmit((submittedValues) => {
-    saveTalentProfileDraft(submittedValues, currentUser ?? undefined);
-    setSavedAt(new Date().toLocaleTimeString("en", { timeStyle: "short" }));
+  const handleSave = form.handleSubmit(async (submittedValues) => {
+    if (!currentUser) {
+      return;
+    }
+
+    const payload = {
+      ...buildTalentProfilePayload(submittedValues),
+      email: submittedValues.email.trim() || currentUser.email,
+      fullName: submittedValues.fullName.trim() || currentUser.name,
+      location: submittedValues.location.trim() || currentUser.location,
+    };
+
+    setProfileError("");
+
+    try {
+      const response = await api.saveTalentProfile(currentUser.id, payload);
+      form.reset(buildTalentProfileValues(response.profile, currentUser));
+      setSavedAt(new Date().toLocaleTimeString("en", { timeStyle: "short" }));
+    } catch (error) {
+      setProfileError(
+        error instanceof Error ? error.message : "Could not save your profile."
+      );
+    }
   });
 
-  const loadDemoProfile = () => {
-    form.reset(buildTalentProfileDefaults(currentUser ?? undefined));
-    setSavedAt("");
-  };
-
-  const clearProfile = () => {
-    clearTalentProfileDraft(currentUser ?? undefined);
+  const resetForm = () => {
     form.reset(buildTalentProfileDefaults(currentUser ?? undefined));
     setSavedAt("");
   };
@@ -79,25 +134,33 @@ export const TalentProfilePage = () => {
           </p>
         </div>
 
+        {profileError ? <div className="status-note error">{profileError}</div> : null}
+        {isLoadingProfile ? (
+          <div className="panel p-6 text-sm text-slate-600">
+            Loading your saved profile...
+          </div>
+        ) : null}
+
         <form className="grid gap-6" onSubmit={handleSave}>
-          <TalentProfileFields form={form} />
+          <TalentProfileFields form={form} userId={currentUser.id} />
 
           <div className="panel flex flex-wrap items-center gap-3 p-6">
-            <button className="button-primary" type="submit">
+            <button
+              className="button-primary"
+              type="submit"
+              disabled={form.formState.isSubmitting || isLoadingProfile}
+            >
               <Save className="mr-2 h-4 w-4" />
-              Save Profile
+              {form.formState.isSubmitting ? "Saving..." : "Save Profile"}
             </button>
             <button
               className="button-secondary"
               type="button"
-              onClick={loadDemoProfile}
+              onClick={resetForm}
+              disabled={form.formState.isSubmitting}
             >
               <RotateCcw className="mr-2 h-4 w-4" />
-              Load Demo Example
-            </button>
-            <button className="button-danger" type="button" onClick={clearProfile}>
-              <Trash2 className="mr-2 h-4 w-4" />
-              Clear Draft
+              Reset Form
             </button>
             {savedAt ? (
               <span className="chip">
@@ -123,12 +186,12 @@ export const TalentProfilePage = () => {
         </div>
 
         <div className="panel p-6">
-          <p className="kicker">Demo Guidance</p>
+          <p className="kicker">Recommended Next Steps</p>
           <h3 className="section-title mt-3">Recommended next steps</h3>
           <div className="mt-5 grid gap-3">
             {[
-              "Review the prefilled demo example and adjust it if you want.",
-              "Save your profile so it is ready for one-click applications.",
+              "Save your profile so it stays attached to your account.",
+              "Upload a CV if you want screening to read resume text as well.",
               "Open the Talent Jobs page and apply to a live role.",
             ].map((item) => (
               <div

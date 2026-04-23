@@ -68,7 +68,7 @@ export const applicantSourceSchema = z.enum([
   "link",
 ]);
 
-export const screeningProviderSchema = z.enum(["mock", "gemini"]);
+export const screeningProviderSchema = z.enum(["gemini"]);
 export const screeningDecisionSchema = z.enum([
   "strong-shortlist",
   "shortlist",
@@ -221,8 +221,16 @@ export const storedUserRecordSchema = authUserSchema.extend({
   passwordHash: z.string().trim().min(1),
 });
 
+export const talentProfileRecordSchema = createApplicantInputSchema.extend({
+  id: z.string().trim().min(1),
+  userId: z.string().trim().min(1),
+  createdAt: z.string().trim().min(1),
+  updatedAt: z.string().trim().min(1),
+});
+
 export const jobRecordSchema = createJobInputSchema.extend({
   id: z.string().trim().min(1),
+  ownerUserId: z.string().trim().min(1),
   createdAt: z.string().trim().min(1),
   updatedAt: z.string().trim().min(1),
 });
@@ -230,6 +238,7 @@ export const jobRecordSchema = createJobInputSchema.extend({
 export const applicantRecordSchema = createApplicantInputSchema.extend({
   id: z.string().trim().min(1),
   jobId: z.string().trim().min(1),
+  submittedByUserId: z.string().trim().min(1).nullable().default(null),
   screeningStatus: screeningStatusSchema.default("ready"),
   createdAt: z.string().trim().min(1),
   updatedAt: z.string().trim().min(1),
@@ -290,6 +299,49 @@ export const dashboardResponseSchema = z.object({
   platform: platformStatusSchema,
 });
 
+export const notificationToneSchema = z.enum([
+  "info",
+  "success",
+  "warning",
+]);
+
+export const notificationRecordSchema = z.object({
+  id: z.string().trim().min(1),
+  title: z.string().trim().min(1),
+  message: z.string().trim().min(1),
+  href: z.string().trim().min(1),
+  actionLabel: z.string().trim().min(1),
+  createdAt: z.string().trim().min(1),
+  badge: z.string().trim().min(1),
+  tone: notificationToneSchema,
+  isRead: z.boolean(),
+  readAt: z.string().trim().min(1).nullable(),
+});
+
+export const notificationSummarySchema = z.object({
+  total: z.number().int().min(0),
+  read: z.number().int().min(0),
+  unread: z.number().int().min(0),
+});
+
+export const notificationsResponseSchema = z.object({
+  notifications: z.array(notificationRecordSchema),
+  summary: notificationSummarySchema,
+});
+
+export const markNotificationsReadInputSchema = z.object({
+  notificationIds: z.array(z.string().trim().min(1)).min(1),
+});
+
+export const notificationReadRecordSchema = z.object({
+  id: z.string().trim().min(1),
+  userId: z.string().trim().min(1),
+  notificationId: z.string().trim().min(1),
+  readAt: z.string().trim().min(1),
+  createdAt: z.string().trim().min(1),
+  updatedAt: z.string().trim().min(1),
+});
+
 export const publicJobsResponseSchema = z.object({
   jobs: z.array(jobRecordSchema),
 });
@@ -315,6 +367,10 @@ export const talentApplicationRecordSchema = z.object({
 
 export const talentApplicationsResponseSchema = z.object({
   applications: z.array(talentApplicationRecordSchema),
+});
+
+export const talentProfileResponseSchema = z.object({
+  profile: talentProfileRecordSchema.nullable(),
 });
 
 export const authResponseSchema = z.object({
@@ -351,6 +407,7 @@ export type CandidateReasoning = z.infer<typeof candidateReasoningSchema>;
 export type ScreeningOverview = z.infer<typeof screeningOverviewSchema>;
 export type AuthUser = z.infer<typeof authUserSchema>;
 export type StoredUserRecord = z.infer<typeof storedUserRecordSchema>;
+export type TalentProfileRecord = z.infer<typeof talentProfileRecordSchema>;
 export type JobRecord = z.infer<typeof jobRecordSchema>;
 export type ApplicantRecord = z.infer<typeof applicantRecordSchema>;
 export type ScreeningResultRecord = z.infer<
@@ -360,6 +417,16 @@ export type DashboardSummary = z.infer<typeof dashboardSummarySchema>;
 export type PlatformStatus = z.infer<typeof platformStatusSchema>;
 export type DashboardJobSnapshot = z.infer<typeof dashboardJobSnapshotSchema>;
 export type DashboardResponse = z.infer<typeof dashboardResponseSchema>;
+export type NotificationTone = z.infer<typeof notificationToneSchema>;
+export type NotificationRecord = z.infer<typeof notificationRecordSchema>;
+export type NotificationSummary = z.infer<typeof notificationSummarySchema>;
+export type NotificationsResponse = z.infer<typeof notificationsResponseSchema>;
+export type MarkNotificationsReadInput = z.infer<
+  typeof markNotificationsReadInputSchema
+>;
+export type NotificationReadRecord = z.infer<
+  typeof notificationReadRecordSchema
+>;
 export type PublicJobsResponse = z.infer<typeof publicJobsResponseSchema>;
 export type PublicJobResponse = z.infer<typeof publicJobResponseSchema>;
 export type JobDetailResponse = z.infer<typeof jobDetailResponseSchema>;
@@ -369,4 +436,5 @@ export type TalentApplicationRecord = z.infer<
 export type TalentApplicationsResponse = z.infer<
   typeof talentApplicationsResponseSchema
 >;
+export type TalentProfileResponse = z.infer<typeof talentProfileResponseSchema>;
 export type AuthResponse = z.infer<typeof authResponseSchema>;

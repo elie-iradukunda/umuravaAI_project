@@ -10,7 +10,6 @@ import { employmentTypeOptions, skillLevelOptions } from "../../lib/constants";
 import {
   buildJobFormValues,
   buildJobPayload,
-  sampleJobFormValues,
   splitCommaValues,
   type JobFormValues,
 } from "../../lib/form-mappers";
@@ -298,16 +297,6 @@ export const JobForm = ({ mode, jobId, initialValues }: JobFormProps) => {
               </button>
             </div>
           </div>
-
-          {mode === "create" ? (
-            <button
-              className="button-secondary mt-4"
-              type="button"
-              onClick={() => reset(sampleJobFormValues())}
-            >
-              Load Demo Job Example
-            </button>
-          ) : null}
 
           <div className="mt-4 grid gap-3">
             {fields.map((field, index) => (

@@ -6,9 +6,12 @@ import {
   createApplicantInputSchema,
   createJobInputSchema,
   loginInputSchema,
+  markNotificationsReadInputSchema,
   updateJobInputSchema,
   type ApplicantRecord,
   type CreateApplicantInput,
+  type StoredUserRecord,
+  type UserRole,
 } from "@umurava/shared";
 import { ZodError } from "zod";
 
@@ -18,6 +21,10 @@ import type { Repository } from "./repositories/types.js";
 import { authenticateUser, registerUser } from "./services/auth.service.js";
 import { buildDashboardResponse } from "./services/dashboard.service.js";
 import { getJobDetail } from "./services/job.service.js";
+import {
+  getNotifications,
+  markNotificationsAsRead,
+} from "./services/notification.service.js";
 import { runScreeningForJob } from "./services/screening.service.js";
 import { getTalentApplications } from "./services/talent-applications.service.js";
 import {
@@ -34,6 +41,53 @@ const upload = multer({
 });
 
 const normalizeEmail = (value: string): string => value.trim().toLowerCase();
+const currentUserHeaderName = "x-user-id";
+
+const getCurrentUser = async (
+  repository: Repository,
+  request: express.Request
+): Promise<StoredUserRecord> => {
+  const userId = String(request.header(currentUserHeaderName) ?? "").trim();
+
+  if (!userId) {
+    throw new HttpError(401, "You must sign in to continue.");
+  }
+
+  const user = await repository.getUserById(userId);
+
+  if (!user) {
+    throw new HttpError(401, "Your session is no longer valid. Please sign in again.");
+  }
+
+  return user;
+};
+
+const requireRole = (
+  currentUser: StoredUserRecord,
+  allowedRoles: UserRole[]
+): void => {
+  if (!allowedRoles.includes(currentUser.roleId)) {
+    throw new HttpError(403, "You do not have access to this resource.");
+  }
+};
+
+const requireOwnedJob = async (
+  repository: Repository,
+  jobId: string,
+  currentUser: StoredUserRecord
+) => {
+  const job = await repository.getJob(jobId);
+
+  if (!job) {
+    throw new HttpError(404, "Job not found.");
+  }
+
+  if (job.ownerUserId !== currentUser.id) {
+    throw new HttpError(404, "Job not found.");
+  }
+
+  return job;
+};
 
 const getDuplicateApplicantEmails = (
   existingApplicants: ApplicantRecord[],
@@ -131,7 +185,61 @@ export const createApp = (repository: Repository) => {
 
   app.get("/api/dashboard", async (_request, response, next) => {
     try {
-      response.json(await buildDashboardResponse(repository));
+      const currentUser = await getCurrentUser(repository, _request);
+      response.json(await buildDashboardResponse(repository, currentUser));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/notifications", async (request, response, next) => {
+    try {
+      const currentUser = await getCurrentUser(repository, request);
+      response.json(await getNotifications(repository, currentUser));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/notifications/read", async (request, response, next) => {
+    try {
+      const currentUser = await getCurrentUser(repository, request);
+      const input = markNotificationsReadInputSchema.parse(request.body);
+
+      response.json(
+        await markNotificationsAsRead(
+          repository,
+          currentUser,
+          input.notificationIds
+        )
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/talent/profile", async (request, response, next) => {
+    try {
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["talent"]);
+
+      response.json({
+        profile: await repository.getTalentProfileByUserId(currentUser.id),
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.put("/api/talent/profile", async (request, response, next) => {
+    try {
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["talent"]);
+
+      const input = createApplicantInputSchema.parse(request.body);
+      const profile = await repository.upsertTalentProfile(currentUser.id, input);
+
+      response.json({ profile });
     } catch (error) {
       next(error);
     }
@@ -139,31 +247,22 @@ export const createApp = (repository: Repository) => {
 
   app.get("/api/talent-applications", async (request, response, next) => {
     try {
-      const email = String(request.query.email ?? "").trim();
-      const fullName = String(request.query.fullName ?? "").trim();
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["talent"]);
 
-      if (!email && !fullName) {
-        response.status(400).json({
-          message: "An email or full name query is required.",
-        });
-        return;
-      }
-
-      response.json(
-        await getTalentApplications(repository, {
-          email,
-          fullName,
-        })
-      );
+      response.json(await getTalentApplications(repository, currentUser.id));
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/jobs", async (_request, response, next) => {
+  app.get("/api/jobs", async (request, response, next) => {
     try {
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["job-owner"]);
+
       response.json({
-        jobs: await repository.listJobs(),
+        jobs: await repository.listJobs({ ownerUserId: currentUser.id }),
       });
     } catch (error) {
       next(error);
@@ -175,6 +274,8 @@ export const createApp = (repository: Repository) => {
     upload.single("file"),
     async (request, response, next) => {
       try {
+        const currentUser = await getCurrentUser(repository, request);
+        requireRole(currentUser, ["talent"]);
         const file = request.file;
 
         if (!file) {
@@ -193,8 +294,11 @@ export const createApp = (repository: Repository) => {
 
   app.post("/api/jobs", async (request, response, next) => {
     try {
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["job-owner"]);
+
       const input = createJobInputSchema.parse(request.body);
-      const job = await repository.createJob(input);
+      const job = await repository.createJob(currentUser.id, input);
       response.status(201).json({ job });
     } catch (error) {
       next(error);
@@ -203,7 +307,11 @@ export const createApp = (repository: Repository) => {
 
   app.get("/api/jobs/:jobId", async (request, response, next) => {
     try {
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["job-owner"]);
+
       const jobId = String(request.params.jobId);
+      await requireOwnedJob(repository, jobId, currentUser);
       const detail = await getJobDetail(repository, jobId);
       if (!detail) {
         response.status(404).json({ message: "Job not found." });
@@ -218,7 +326,11 @@ export const createApp = (repository: Repository) => {
 
   app.put("/api/jobs/:jobId", async (request, response, next) => {
     try {
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["job-owner"]);
+
       const jobId = String(request.params.jobId);
+      await requireOwnedJob(repository, jobId, currentUser);
       const input = updateJobInputSchema.parse(request.body);
       const job = await repository.updateJob(jobId, input);
 
@@ -238,6 +350,10 @@ export const createApp = (repository: Repository) => {
   app.get("/api/jobs/:jobId/applicants", async (request, response, next) => {
     try {
       const jobId = String(request.params.jobId);
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["job-owner"]);
+      await requireOwnedJob(repository, jobId, currentUser);
+
       response.json({
         applicants: await repository.listApplicants(jobId),
       });
@@ -249,6 +365,10 @@ export const createApp = (repository: Repository) => {
   app.post("/api/jobs/:jobId/applicants", async (request, response, next) => {
     try {
       const jobId = String(request.params.jobId);
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["job-owner"]);
+      await requireOwnedJob(repository, jobId, currentUser);
+
       const payload = Array.isArray(request.body) ? request.body : [request.body];
       const applicants = payload.map((item) =>
         createApplicantInputSchema.parse(item)
@@ -283,12 +403,70 @@ export const createApp = (repository: Repository) => {
     }
   });
 
+  app.post("/api/talent/jobs/:jobId/apply", async (request, response, next) => {
+    try {
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["talent"]);
+
+      const jobId = String(request.params.jobId);
+      const job = await repository.getJob(jobId);
+
+      if (!job) {
+        response.status(404).json({ message: "Job not found." });
+        return;
+      }
+
+      const applicant = createApplicantInputSchema.parse(request.body);
+      const existingApplicants = await repository.listApplicants(jobId);
+      const duplicateApplication = existingApplicants.find(
+        (item) => item.submittedByUserId === currentUser.id
+      );
+
+      if (duplicateApplication) {
+        response.status(409).json({
+          message: "You already applied to this job.",
+        });
+        return;
+      }
+
+      const duplicateEmails = getDuplicateApplicantEmails(existingApplicants, [applicant]);
+
+      if (duplicateEmails.length > 0) {
+        response.status(409).json({
+          message: `Applicants with these email addresses already exist for this job: ${duplicateEmails.join(
+            ", "
+          )}.`,
+        });
+        return;
+      }
+
+      const [createdApplicant] = await repository.createApplicants(jobId, [applicant], {
+        submittedByUserId: currentUser.id,
+      });
+
+      if (createdApplicant) {
+        await repository.resetJobScreening(jobId);
+      }
+
+      response.status(201).json({
+        applicants: createdApplicant ? [createdApplicant] : [],
+        importedCount: createdApplicant ? 1 : 0,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.post(
     "/api/jobs/:jobId/applicants/upload",
     upload.array("files"),
     async (request, response, next) => {
       try {
         const jobId = String(request.params.jobId);
+        const currentUser = await getCurrentUser(repository, request);
+        requireRole(currentUser, ["job-owner"]);
+        await requireOwnedJob(repository, jobId, currentUser);
+
         const files = (request.files as Express.Multer.File[]) ?? [];
         const parsed = await parseApplicantUploads(files);
         const validatedApplicants = parsed.applicants.map((item) =>
@@ -330,6 +508,10 @@ export const createApp = (repository: Repository) => {
   app.get("/api/jobs/:jobId/screenings", async (request, response, next) => {
     try {
       const jobId = String(request.params.jobId);
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["job-owner"]);
+      await requireOwnedJob(repository, jobId, currentUser);
+
       response.json({
         screenings: await repository.listScreenings(jobId),
       });
@@ -341,6 +523,10 @@ export const createApp = (repository: Repository) => {
   app.post("/api/jobs/:jobId/screenings/run", async (request, response, next) => {
     try {
       const jobId = String(request.params.jobId);
+      const currentUser = await getCurrentUser(repository, request);
+      requireRole(currentUser, ["job-owner"]);
+      await requireOwnedJob(repository, jobId, currentUser);
+
       const screenings = await runScreeningForJob(repository, jobId);
 
       response.status(201).json({ screenings });

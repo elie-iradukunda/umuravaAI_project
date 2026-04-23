@@ -14,6 +14,7 @@ import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
 
 import { env } from "../config/env.js";
+import { HttpError } from "../lib/http-error.js";
 
 type ResumeFileInput = {
   buffer: Buffer;
@@ -141,6 +142,17 @@ const screeningAssessmentSchema = z.object({
 
 type ResumeExtraction = z.infer<typeof resumeExtractionSchema>;
 type ScreeningAssessment = z.infer<typeof screeningAssessmentSchema>;
+type GeminiErrorPayload = {
+  error?: {
+    code?: number;
+    message?: string;
+    status?: string;
+    details?: Array<{
+      reason?: string;
+      metadata?: Record<string, string>;
+    }>;
+  };
+};
 
 const resumeExtractionInstruction = `
 You are a resume extraction engine for a hiring platform.
@@ -357,7 +369,79 @@ const inlinePdfPart = (file: ResumeFileInput) => ({
   },
 });
 
+const parseGeminiErrorPayload = (error: unknown): GeminiErrorPayload | null => {
+  if (!(error instanceof Error)) {
+    return null;
+  }
+
+  const rawMessage = error.message.trim();
+  if (!rawMessage.startsWith("{")) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(rawMessage) as GeminiErrorPayload;
+  } catch {
+    return null;
+  }
+};
+
+const getGeminiErrorStatus = (error: unknown): string => {
+  const payload = parseGeminiErrorPayload(error);
+  return payload?.error?.status ?? "";
+};
+
+const getGeminiErrorReason = (error: unknown): string => {
+  const payload = parseGeminiErrorPayload(error);
+  return payload?.error?.details?.find((item) => item.reason)?.reason ?? "";
+};
+
 export const isGeminiConfigured = (): boolean => Boolean(env.GEMINI_API_KEY);
+
+export const toGeminiHttpError = (
+  error: unknown,
+  fallbackMessage: string
+): HttpError => {
+  if (
+    error instanceof Error &&
+    error.message.includes("GEMINI_API_KEY is missing")
+  ) {
+    return new HttpError(
+      503,
+      "Gemini is not configured yet. Add a valid GEMINI_API_KEY in apps/api/.env."
+    );
+  }
+
+  const status = getGeminiErrorStatus(error);
+  const reason = getGeminiErrorReason(error);
+
+  if (status === "RESOURCE_EXHAUSTED") {
+    return new HttpError(
+      429,
+      "Gemini quota is currently exhausted. Wait a minute or upgrade billing, then try screening again."
+    );
+  }
+
+  if (
+    status === "INVALID_ARGUMENT" &&
+    reason === "API_KEY_INVALID"
+  ) {
+    return new HttpError(
+      503,
+      "Gemini rejected the configured API key. Replace GEMINI_API_KEY in apps/api/.env with a valid key, then retry."
+    );
+  }
+
+  if (error instanceof HttpError) {
+    return error;
+  }
+
+  if (error instanceof Error && error.message.trim()) {
+    return new HttpError(502, `${fallbackMessage} ${error.message.trim()}`);
+  }
+
+  return new HttpError(502, fallbackMessage);
+};
 
 export const extractApplicantFromResumePdf = async (
   file: ResumeFileInput,

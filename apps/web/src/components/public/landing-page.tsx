@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import type { DashboardResponse } from "@umurava/shared";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
@@ -38,42 +37,6 @@ type FeatureCard = {
   description: string;
   icon: LucideIcon;
 };
-
-const fallbackOpportunities: PublicOpportunity[] = [
-  {
-    id: "support-specialist",
-    title: "Customer Support Specialist",
-    department: "Customer Experience",
-    location: "Kigali, Rwanda",
-    employmentType: "full-time",
-    minimumExperienceYears: 2,
-    summary:
-      "Support customers across chat, email, and phone while improving response quality and service resolution.",
-    skills: ["Customer Support", "CRM Tools", "Communication"],
-  },
-  {
-    id: "frontend-engineer",
-    title: "Frontend Engineer",
-    department: "Product Engineering",
-    location: "Remote",
-    employmentType: "full-time",
-    minimumExperienceYears: 3,
-    summary:
-      "Build clean product interfaces in React and Next.js while partnering with product and design on fast iteration.",
-    skills: ["React", "Next.js", "Tailwind CSS"],
-  },
-  {
-    id: "data-operations-analyst",
-    title: "Talent Operations Analyst",
-    department: "Talent Operations",
-    location: "Nairobi, Kenya",
-    employmentType: "contract",
-    minimumExperienceYears: 2,
-    summary:
-      "Track funnel health, monitor applicant quality, and help recruiting teams move roles forward with clear data.",
-    skills: ["Operations", "Reporting", "Excel"],
-  },
-];
 
 const publicFeatures: FeatureCard[] = [
   {
@@ -130,7 +93,7 @@ const processSteps = [
 export const LandingPage = () => {
   const currentUser = useAppSelector(selectCurrentUser);
   const { hydrated } = useAppSelector(selectAuthState);
-  const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
+  const [opportunities, setOpportunities] = useState<PublicOpportunity[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -139,12 +102,23 @@ export const LandingPage = () => {
 
     const load = async () => {
       try {
-        const response = await api.getDashboard();
+        const response = await api.getPublicJobs();
         if (!active) {
           return;
         }
 
-        setDashboard(response);
+        setOpportunities(
+          response.jobs.map((job) => ({
+            id: job.id,
+            title: job.title,
+            department: job.department,
+            location: job.location,
+            employmentType: job.employmentType,
+            minimumExperienceYears: job.minimumExperienceYears,
+            summary: job.summary,
+            skills: job.requiredSkills.map((skill) => skill.name),
+          }))
+        );
         setError("");
       } catch (loadError) {
         if (!active) {
@@ -169,48 +143,26 @@ export const LandingPage = () => {
       active = false;
     };
   }, []);
-
-  const liveOpportunities = useMemo<PublicOpportunity[]>(
-    () =>
-      dashboard?.jobs.map((snapshot) => ({
-        id: snapshot.job.id,
-        title: snapshot.job.title,
-        department: snapshot.job.department,
-        location: snapshot.job.location,
-        employmentType: snapshot.job.employmentType,
-        minimumExperienceYears: snapshot.job.minimumExperienceYears,
-        summary: snapshot.job.summary,
-        skills: snapshot.job.requiredSkills.map((skill) => skill.name),
-      })) ?? [],
-    [dashboard]
-  );
-
-  const opportunities =
-    liveOpportunities.length > 0
-      ? liveOpportunities.slice(0, 6)
-      : fallbackOpportunities;
-
-  const summary = dashboard?.summary;
   const publicMetrics = [
     {
       label: "Open jobs",
-      value: summary ? String(summary.totalJobs) : String(opportunities.length),
+      value: String(opportunities.length),
       helper: "Live hiring opportunities visible to visitors",
     },
     {
-      label: "Applicants processed",
-      value: summary ? String(summary.totalApplicants) : "Live demo",
-      helper: "Profiles and uploads already flowing into the platform",
+      label: "Platform roles",
+      value: String(platformUsers.length),
+      helper: "Talent, job owner, and admin access are available",
     },
     {
-      label: "Shortlists generated",
-      value: summary ? String(summary.screenedApplicants) : "Explainable",
-      helper: "AI-ready shortlist workflows for job-owner review",
+      label: "Profile flow",
+      value: "Structured",
+      helper: "Candidates save one profile and reuse it across applications",
     },
     {
-      label: "Average match score",
-      value: summary ? formatScore(summary.averageMatchScore) : "82",
-      helper: "Hiring-team-friendly scoring and reasoning output",
+      label: "AI screening",
+      value: "Gemini",
+      helper: "Shortlist scoring is ready when provider settings are configured",
     },
   ];
 
@@ -364,7 +316,7 @@ export const LandingPage = () => {
 
               {error ? (
                 <div className="status-note warning mt-5">
-                  Showing public demo opportunities while live job data is unavailable.
+                  Live opportunities could not be loaded right now.
                 </div>
               ) : null}
             </aside>
@@ -407,49 +359,60 @@ export const LandingPage = () => {
               </div>
 
               <div className="mt-6 grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                {opportunities.map((job) => (
-                  <article
-                    key={job.id}
-                    className="rounded-[28px] border border-[#dbe7ff] bg-white p-5 shadow-[0_18px_38px_rgba(15,23,42,0.05)]"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                          {job.department}
-                        </p>
-                        <h3 className="mt-3 text-xl font-semibold text-[#10213c]">
-                          {job.title}
-                        </h3>
+                {opportunities.length > 0 ? (
+                  opportunities.map((job) => (
+                    <article
+                      key={job.id}
+                      className="rounded-[28px] border border-[#dbe7ff] bg-white p-5 shadow-[0_18px_38px_rgba(15,23,42,0.05)]"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                            {job.department}
+                          </p>
+                          <h3 className="mt-3 text-xl font-semibold text-[#10213c]">
+                            {job.title}
+                          </h3>
+                        </div>
+                        <span className="chip">{startCase(job.employmentType)}</span>
                       </div>
-                      <span className="chip">{startCase(job.employmentType)}</span>
-                    </div>
 
-                    <p className="mt-4 text-sm leading-6 text-slate-600">
-                      {job.summary}
-                    </p>
+                      <p className="mt-4 text-sm leading-6 text-slate-600">
+                        {job.summary}
+                      </p>
 
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <span className="chip">{job.location}</span>
-                      <span className="chip">
-                        {job.minimumExperienceYears}+ years
-                      </span>
-                      {job.skills.slice(0, 3).map((skill) => (
-                        <span key={`${job.id}-${skill}`} className="chip">
-                          {skill}
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <span className="chip">{job.location}</span>
+                        <span className="chip">
+                          {job.minimumExperienceYears}+ years
                         </span>
-                      ))}
-                    </div>
+                        {job.skills.slice(0, 3).map((skill) => (
+                          <span key={`${job.id}-${skill}`} className="chip">
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
 
-                    <div className="mt-5 flex flex-wrap gap-3">
-                      <Link href="/signup" className="button-primary">
-                        Create Account To Apply
-                      </Link>
-                      <Link href="/login" className="button-secondary">
-                        Sign In
-                      </Link>
-                    </div>
-                  </article>
-                ))}
+                      <div className="mt-5 flex flex-wrap gap-3">
+                        <Link href="/signup" className="button-primary">
+                          Create Account To Apply
+                        </Link>
+                        <Link href="/login" className="button-secondary">
+                          Sign In
+                        </Link>
+                      </div>
+                    </article>
+                  ))
+                ) : (
+                  <div className="rounded-[28px] border border-dashed border-[#c9d8f5] bg-[#f8fbff] px-6 py-10 text-center lg:col-span-3">
+                    <p className="text-lg font-semibold text-[#10213c]">
+                      No public jobs are live yet.
+                    </p>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">
+                      Create a job-owner account and post a role to make it visible here.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -606,8 +569,8 @@ export const LandingPage = () => {
               </h2>
               <p className="section-copy">
                 Create a candidate account, complete your profile, and start
-                applying to live jobs. If you already have a demo or local
-                account, go straight to sign in.
+                applying to live jobs. If you already have an account, go
+                straight to sign in.
               </p>
 
               <div className="mt-6 grid gap-3">

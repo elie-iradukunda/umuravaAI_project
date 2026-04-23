@@ -9,8 +9,8 @@ import { ArrowRight, MapPin, Mail, ShieldCheck, UserRound } from "lucide-react";
 import { useState } from "react";
 
 import { api } from "../../lib/api";
-import { authStorageKey, cacheAuthenticatedUser } from "../../lib/demo-users";
 import { platformUsers } from "../../lib/platform-users";
+import { persistSessionUser } from "../../lib/session-user";
 import { signIn } from "../../store/auth-slice";
 import { useAppDispatch } from "../../store/hooks";
 
@@ -44,13 +44,9 @@ export const SignupPage = () => {
 
     try {
       const response = await api.signup(values);
-      const user = cacheAuthenticatedUser(response.user);
+      const user = persistSessionUser(response.user);
 
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(authStorageKey, user.id);
-      }
-
-      dispatch(signIn(user.id));
+      dispatch(signIn(user));
       router.replace("/workspace");
     } catch (signupError) {
       setError(
@@ -144,7 +140,7 @@ export const SignupPage = () => {
                 </h2>
                 <p className="mt-3 text-sm leading-7 text-slate-600">
                   Fill a few details below, choose the role you want, and we
-                  will create a real backend user account for this prototype.
+                  will create a real backend user account for this workspace.
                 </p>
               </div>
               <Link href="/" className="button-secondary hidden sm:inline-flex">
@@ -240,9 +236,7 @@ export const SignupPage = () => {
             </form>
 
             <div className="mt-8 rounded-[28px] border border-[#d9e6ff] bg-[#f8fbff] p-5">
-              <p className="text-sm font-semibold text-[#10213c]">
-                Already have a demo or local account?
-              </p>
+              <p className="text-sm font-semibold text-[#10213c]">Already have an account?</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 Go to login and enter your email and password to continue into
                 your workspace.

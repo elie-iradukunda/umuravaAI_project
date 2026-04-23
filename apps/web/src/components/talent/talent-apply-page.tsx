@@ -11,13 +11,13 @@ import { formatDate, startCase } from "../../lib/format";
 import {
   buildTalentProfilePayload,
   buildTalentProfileDefaults,
+  buildTalentProfileValues,
   estimateTalentProfileCompletion,
-  loadTalentProfileDraft,
-  saveTalentProfileDraft,
   type TalentProfileValues,
 } from "../../lib/talent-profile";
 import { selectCurrentUser } from "../../store/auth-slice";
-import { useAppSelector } from "../../store/hooks";
+import { useAppDispatch, useAppSelector } from "../../store/hooks";
+import { loadNotifications } from "../../store/notification-slice";
 import { TalentProfileFields } from "./talent-profile-fields";
 
 type TalentApplyPageProps = {
@@ -28,6 +28,7 @@ type LoadStatus = "idle" | "loading" | "succeeded" | "failed";
 type SubmitStatus = "idle" | "loading" | "succeeded" | "failed";
 
 export const TalentApplyPage = ({ jobId }: TalentApplyPageProps) => {
+  const dispatch = useAppDispatch();
   const currentUser = useAppSelector(selectCurrentUser);
   const [job, setJob] = useState<JobRecord | null>(null);
   const [loadStatus, setLoadStatus] = useState<LoadStatus>("idle");
@@ -43,7 +44,34 @@ export const TalentApplyPage = ({ jobId }: TalentApplyPageProps) => {
   });
 
   useEffect(() => {
-    form.reset(loadTalentProfileDraft(currentUser ?? undefined));
+    if (!currentUser || currentUser.roleId !== "talent") {
+      return;
+    }
+
+    let active = true;
+
+    const loadProfile = async () => {
+      try {
+        const response = await api.getTalentProfile(currentUser.id);
+        if (!active) {
+          return;
+        }
+
+        form.reset(buildTalentProfileValues(response.profile, currentUser));
+      } catch {
+        if (!active) {
+          return;
+        }
+
+        form.reset(buildTalentProfileDefaults(currentUser));
+      }
+    };
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
   }, [currentUser, form]);
 
   useEffect(() => {
@@ -60,7 +88,7 @@ export const TalentApplyPage = ({ jobId }: TalentApplyPageProps) => {
       try {
         const [jobResponse, applicationsResponse] = await Promise.all([
           api.getPublicJob(jobId),
-          api.getTalentApplications(currentUser.email, currentUser.name),
+          api.getTalentApplications(currentUser.id),
         ]);
 
         if (!active) {
@@ -110,14 +138,16 @@ export const TalentApplyPage = ({ jobId }: TalentApplyPageProps) => {
       ...buildTalentProfilePayload(submittedValues),
       email: currentUser.email,
       fullName: submittedValues.fullName.trim() || currentUser.name,
+      location: submittedValues.location.trim() || currentUser.location,
     };
 
-    saveTalentProfileDraft(submittedValues, currentUser);
     setSubmitStatus("loading");
     setSubmitError("");
 
     try {
-      await api.addApplicants(jobId, [profilePayload]);
+      await api.saveTalentProfile(currentUser.id, profilePayload);
+      await api.applyToJob(currentUser.id, jobId, profilePayload);
+      void dispatch(loadNotifications());
       setSubmitStatus("succeeded");
       setSubmitted(true);
     } catch (error) {
@@ -136,7 +166,7 @@ export const TalentApplyPage = ({ jobId }: TalentApplyPageProps) => {
           This page is reserved for the talent account
         </h2>
         <p className="section-copy">
-          Switch to the demo talent login if you want to submit a profile-driven
+          Sign in with a talent account if you want to submit a profile-driven
           application.
         </p>
       </div>
@@ -310,7 +340,7 @@ export const TalentApplyPage = ({ jobId }: TalentApplyPageProps) => {
         </div>
 
         <form className="grid gap-6" onSubmit={handleSubmit}>
-          <TalentProfileFields form={form} />
+          <TalentProfileFields form={form} userId={currentUser.id} />
 
           {submitError ? <div className="status-note error">{submitError}</div> : null}
 

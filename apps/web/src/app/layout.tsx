@@ -5,7 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Umurava AI Talent Platform",
   description:
-    "AI-powered multi-role hiring platform for the Umurava hackathon prototype.",
+    "AI-powered multi-role hiring platform for the Umurava workspace.",
 };
 
 export default function RootLayout({

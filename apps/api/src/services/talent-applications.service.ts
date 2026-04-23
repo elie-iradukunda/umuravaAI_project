@@ -7,27 +7,6 @@ import type {
 
 import type { Repository } from "../repositories/types.js";
 
-const matchesTalentIdentity = (
-  applicant: ApplicantRecord,
-  email?: string,
-  fullName?: string
-) => {
-  const normalizedEmail = email?.trim().toLowerCase();
-  const normalizedName = fullName?.trim().toLowerCase();
-
-  // For platform talent accounts, email is the strongest identity signal.
-  // Only fall back to full name when no email was supplied.
-  if (normalizedEmail) {
-    return (applicant.email ?? "").trim().toLowerCase() === normalizedEmail;
-  }
-
-  if (normalizedName) {
-    return applicant.fullName.trim().toLowerCase() === normalizedName;
-  }
-
-  return false;
-};
-
 const mapApplication = (
   applicant: ApplicantRecord,
   screenings: ScreeningResultRecord[],
@@ -43,34 +22,24 @@ const mapApplication = (
 
 export const getTalentApplications = async (
   repository: Repository,
-  identity: {
-    email?: string;
-    fullName?: string;
-  }
+  talentUserId: string
 ): Promise<TalentApplicationsResponse> => {
-  const jobs = await repository.listJobs();
+  const applicants = await repository.listApplicantsBySubmittedUser(talentUserId);
 
-  const jobArtifacts = await Promise.all(
-    jobs.map(async (job) => {
-      const [applicants, screenings] = await Promise.all([
-        repository.listApplicants(job.id),
-        repository.listScreenings(job.id),
-      ]);
+  const applications = (
+    await Promise.all(
+      applicants.map(async (applicant) => {
+        const job = await repository.getJob(applicant.jobId);
+        if (!job) {
+          return null;
+        }
 
-      return { job, applicants, screenings };
-    })
-  );
-
-  const applications = jobArtifacts
-    .flatMap(({ job, applicants, screenings }) =>
-      applicants
-        .filter(
-          (applicant) =>
-            applicant.source === "platform" &&
-            matchesTalentIdentity(applicant, identity.email, identity.fullName)
-        )
-        .map((applicant) => mapApplication(applicant, screenings, job))
+        const screenings = await repository.listScreenings(job.id);
+        return mapApplication(applicant, screenings, job);
+      })
     )
+  )
+    .filter((item): item is TalentApplicationRecord => Boolean(item))
     .sort(
       (left, right) =>
         new Date(right.submittedAt).getTime() - new Date(left.submittedAt).getTime()

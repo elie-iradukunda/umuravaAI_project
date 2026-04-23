@@ -11,7 +11,9 @@ import type {
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 
 import { api } from "../lib/api";
+import { selectCurrentUserId } from "./auth-slice";
 import type { RootState } from "./index";
+import { loadNotifications } from "./notification-slice";
 
 type AsyncStatus = "idle" | "loading" | "succeeded" | "failed";
 
@@ -46,13 +48,23 @@ const initialState: RecruiterState = {
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : "Something went wrong.";
 
+const requireCurrentUserId = (state: RootState): string => {
+  const userId = selectCurrentUserId(state);
+
+  if (!userId) {
+    throw new Error("Please sign in to continue.");
+  }
+
+  return userId;
+};
+
 export const loadDashboard = createAsyncThunk<
   DashboardResponse,
   void,
-  { rejectValue: string }
+  { state: RootState; rejectValue: string }
 >("recruiter/loadDashboard", async (_, thunkApi) => {
   try {
-    return await api.getDashboard();
+    return await api.getDashboard(requireCurrentUserId(thunkApi.getState()));
   } catch (error) {
     return thunkApi.rejectWithValue(getErrorMessage(error));
   }
@@ -61,10 +73,13 @@ export const loadDashboard = createAsyncThunk<
 export const loadJobDetail = createAsyncThunk<
   JobDetailResponse,
   string,
-  { rejectValue: string }
+  { state: RootState; rejectValue: string }
 >("recruiter/loadJobDetail", async (jobId, thunkApi) => {
   try {
-    return await api.getJobDetail(jobId);
+    return await api.getJobDetail(
+      requireCurrentUserId(thunkApi.getState()),
+      jobId
+    );
   } catch (error) {
     return thunkApi.rejectWithValue(getErrorMessage(error));
   }
@@ -73,11 +88,15 @@ export const loadJobDetail = createAsyncThunk<
 export const createJob = createAsyncThunk<
   JobRecord,
   CreateJobInput,
-  { rejectValue: string }
+  { state: RootState; rejectValue: string }
 >("recruiter/createJob", async (input, thunkApi) => {
   try {
-    const response = await api.createJob(input);
+    const response = await api.createJob(
+      requireCurrentUserId(thunkApi.getState()),
+      input
+    );
     void thunkApi.dispatch(loadDashboard());
+    void thunkApi.dispatch(loadNotifications());
     return response.job;
   } catch (error) {
     return thunkApi.rejectWithValue(getErrorMessage(error));
@@ -87,12 +106,17 @@ export const createJob = createAsyncThunk<
 export const updateJob = createAsyncThunk<
   JobRecord,
   { jobId: string; input: UpdateJobInput },
-  { rejectValue: string }
+  { state: RootState; rejectValue: string }
 >("recruiter/updateJob", async ({ jobId, input }, thunkApi) => {
   try {
-    const response = await api.updateJob(jobId, input);
+    const response = await api.updateJob(
+      requireCurrentUserId(thunkApi.getState()),
+      jobId,
+      input
+    );
     void thunkApi.dispatch(loadJobDetail(jobId));
     void thunkApi.dispatch(loadDashboard());
+    void thunkApi.dispatch(loadNotifications());
     return response.job;
   } catch (error) {
     return thunkApi.rejectWithValue(getErrorMessage(error));
@@ -102,12 +126,17 @@ export const updateJob = createAsyncThunk<
 export const addApplicants = createAsyncThunk<
   number,
   { jobId: string; applicants: CreateApplicantInput[] },
-  { rejectValue: string }
+  { state: RootState; rejectValue: string }
 >("recruiter/addApplicants", async ({ jobId, applicants }, thunkApi) => {
   try {
-    const response = await api.addApplicants(jobId, applicants);
+    const response = await api.addApplicants(
+      requireCurrentUserId(thunkApi.getState()),
+      jobId,
+      applicants
+    );
     void thunkApi.dispatch(loadJobDetail(jobId));
     void thunkApi.dispatch(loadDashboard());
+    void thunkApi.dispatch(loadNotifications());
     return response.importedCount;
   } catch (error) {
     return thunkApi.rejectWithValue(getErrorMessage(error));
@@ -117,12 +146,17 @@ export const addApplicants = createAsyncThunk<
 export const uploadApplicants = createAsyncThunk<
   string[],
   { jobId: string; files: File[] },
-  { rejectValue: string }
+  { state: RootState; rejectValue: string }
 >("recruiter/uploadApplicants", async ({ jobId, files }, thunkApi) => {
   try {
-    const response = await api.uploadApplicants(jobId, files);
+    const response = await api.uploadApplicants(
+      requireCurrentUserId(thunkApi.getState()),
+      jobId,
+      files
+    );
     void thunkApi.dispatch(loadJobDetail(jobId));
     void thunkApi.dispatch(loadDashboard());
+    void thunkApi.dispatch(loadNotifications());
     return response.warnings ?? [];
   } catch (error) {
     return thunkApi.rejectWithValue(getErrorMessage(error));
@@ -132,12 +166,16 @@ export const uploadApplicants = createAsyncThunk<
 export const runScreening = createAsyncThunk<
   number,
   string,
-  { rejectValue: string }
+  { state: RootState; rejectValue: string }
 >("recruiter/runScreening", async (jobId, thunkApi) => {
   try {
-    const response = await api.runScreening(jobId);
+    const response = await api.runScreening(
+      requireCurrentUserId(thunkApi.getState()),
+      jobId
+    );
     void thunkApi.dispatch(loadJobDetail(jobId));
     void thunkApi.dispatch(loadDashboard());
+    void thunkApi.dispatch(loadNotifications());
     return response.screenings.length;
   } catch (error) {
     return thunkApi.rejectWithValue(getErrorMessage(error));

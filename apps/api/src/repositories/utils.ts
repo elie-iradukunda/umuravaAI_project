@@ -5,9 +5,11 @@ import type {
   CreateApplicantInput,
   CreateJobInput,
   JobRecord,
+  NotificationReadRecord,
   UserRole,
   ScreeningResultRecord,
   StoredUserRecord,
+  TalentProfileRecord,
   UpdateJobInput,
 } from "@umurava/shared";
 import { normalizeUserRole } from "@umurava/shared";
@@ -15,6 +17,7 @@ import { normalizeUserRole } from "@umurava/shared";
 export const nowIso = () => new Date().toISOString();
 
 export const withJobRecord = (
+  ownerUserId: string,
   input: CreateJobInput,
   overrides: Partial<JobRecord> = {}
 ): JobRecord => {
@@ -22,6 +25,7 @@ export const withJobRecord = (
 
   return {
     id: overrides.id ?? `job_${randomUUID()}`,
+    ownerUserId: overrides.ownerUserId ?? ownerUserId,
     ...input,
     createdAt: timestamp,
     updatedAt: overrides.updatedAt ?? timestamp,
@@ -47,6 +51,7 @@ export const withApplicantRecord = (
   return {
     id: overrides.id ?? `applicant_${randomUUID()}`,
     jobId,
+    submittedByUserId: overrides.submittedByUserId ?? null,
     fullName: input.fullName,
     headline: input.headline ?? "",
     email: input.email ?? "",
@@ -90,6 +95,58 @@ export const withUserRecord = (
     roleId: normalizeUserRole(input.roleId) as UserRole,
     location: input.location.trim(),
     createdAt: timestamp,
+    updatedAt: overrides.updatedAt ?? timestamp,
+  };
+};
+
+export const withTalentProfileRecord = (
+  userId: string,
+  input: CreateApplicantInput,
+  overrides: Partial<TalentProfileRecord> = {}
+): TalentProfileRecord => {
+  const timestamp = overrides.createdAt ?? nowIso();
+
+  return {
+    id: overrides.id ?? `talent_profile_${userId}`,
+    userId,
+    fullName: input.fullName,
+    headline: input.headline ?? "",
+    email: input.email ?? "",
+    phone: input.phone ?? "",
+    location: input.location,
+    source: input.source ?? "platform",
+    resumeUrl: input.resumeUrl ?? "",
+    resumeFileName: input.resumeFileName ?? "",
+    resumeText: input.resumeText ?? "",
+    profileSummary: input.profileSummary,
+    totalExperienceYears: input.totalExperienceYears,
+    education: input.education ?? [],
+    skills: input.skills ?? [],
+    languages: input.languages ?? [],
+    experience: input.experience ?? [],
+    certifications: input.certifications ?? [],
+    projects: input.projects ?? [],
+    availability: input.availability,
+    socialLinks: input.socialLinks ?? {},
+    tags: input.tags ?? [],
+    createdAt: timestamp,
+    updatedAt: overrides.updatedAt ?? timestamp,
+  };
+};
+
+export const withNotificationReadRecord = (
+  userId: string,
+  notificationId: string,
+  overrides: Partial<NotificationReadRecord> = {}
+): NotificationReadRecord => {
+  const timestamp = overrides.readAt ?? nowIso();
+
+  return {
+    id: overrides.id ?? `notification_read_${randomUUID()}`,
+    userId,
+    notificationId,
+    readAt: timestamp,
+    createdAt: overrides.createdAt ?? timestamp,
     updatedAt: overrides.updatedAt ?? timestamp,
   };
 };

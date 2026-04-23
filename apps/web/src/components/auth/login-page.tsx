@@ -14,14 +14,8 @@ import {
   Sparkles,
 } from "lucide-react";
 
-import {
-  authStorageKey,
-  cacheAuthenticatedUser,
-  demoUsers,
-  getPlatformUserDetails,
-  getUserByEmail,
-} from "../../lib/demo-users";
 import { api } from "../../lib/api";
+import { persistSessionUser } from "../../lib/session-user";
 import { signIn, selectAuthState, selectCurrentUser } from "../../store/auth-slice";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
 
@@ -43,7 +37,7 @@ const platformHighlights = [
   },
   {
     label: "Operational visibility",
-    value: "Mongo-ready prototype",
+    value: "Mongo-ready workspace",
     icon: ShieldCheck,
   },
 ];
@@ -57,8 +51,8 @@ export const LoginPage = () => {
 
   const form = useForm<LoginFormValues>({
     defaultValues: {
-      email: demoUsers[0].email,
-      password: demoUsers[0].password,
+      email: "",
+      password: "",
     },
   });
 
@@ -68,36 +62,17 @@ export const LoginPage = () => {
     }
   }, [currentUser, hydrated, router]);
 
-  const loginWithUser = (userId: string) => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(authStorageKey, userId);
-    }
-
-    dispatch(signIn(userId));
+  const loginWithUser = (user: ReturnType<typeof persistSessionUser>) => {
+    dispatch(signIn(user));
     router.replace("/workspace");
   };
 
   const onSubmit = form.handleSubmit(async (values) => {
-    const matchedUser = getUserByEmail(values.email);
-
-    if (matchedUser?.password) {
-      if (matchedUser.password !== values.password) {
-        setError(
-          "Incorrect email or password. Use a demo account below or sign in with a created account."
-        );
-        return;
-      }
-
-      setError("");
-      loginWithUser(matchedUser.id);
-      return;
-    }
-
     try {
       const response = await api.login(values);
-      const user = cacheAuthenticatedUser(response.user);
+      const user = persistSessionUser(response.user);
       setError("");
-      loginWithUser(user.id);
+      loginWithUser(user);
     } catch (loginError) {
       setError(
         loginError instanceof Error
@@ -127,7 +102,7 @@ export const LoginPage = () => {
 
             <div className="mt-10 max-w-2xl">
               <p className="text-[11px] font-semibold uppercase tracking-[0.34em] text-[#d6e4ff]">
-                Hackathon Prototype
+                Role-Based Access
               </p>
               <h1 className="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl">
                 Role-based hiring dashboards that actually feel product-ready.
@@ -164,11 +139,11 @@ export const LoginPage = () => {
                   <Radar className="h-5 w-5" />
                 </span>
                 <div>
-                  <p className="text-lg font-semibold text-white">What you can demo right now</p>
-                  <p className="mt-1 text-sm text-[#dce8ff]">
-                    Login, switch users, create jobs, complete a talent profile,
-                    apply to open roles, inspect hiring pipelines, and show
-                    admin-ready platform controls live.
+                <p className="text-lg font-semibold text-white">What you can do right now</p>
+                <p className="mt-1 text-sm text-[#dce8ff]">
+                  Login, switch users, create jobs, complete a talent profile,
+                  apply to open roles, inspect hiring pipelines, and show
+                  admin-ready platform controls live.
                   </p>
                 </div>
               </div>
@@ -185,8 +160,8 @@ export const LoginPage = () => {
                   Enter the workspace
                 </h2>
                 <p className="mt-3 text-sm leading-7 text-slate-600">
-                  Use the demo credentials below or choose a quick account and go
-                  directly into the correct dashboard.
+                  Sign in with the account you created and continue into the
+                  workspace for your role.
                 </p>
               </div>
               <Link
@@ -221,58 +196,11 @@ export const LoginPage = () => {
               </button>
             </form>
 
-            <div className="mt-8 rounded-[28px] border border-[#d9e6ff] bg-[#f8fbff] p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-[#10213c]">Quick access accounts</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Each account opens a different dashboard lens.
-                  </p>
-                </div>
-                <span className="rounded-full bg-[#eaf1ff] px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-[#3f5fa7]">
-                  Demo
-                </span>
-              </div>
-
-              <div className="mt-5 grid gap-3">
-                {demoUsers.map((user) => {
-                  const role = getPlatformUserDetails(user.roleId);
-
-                  return (
-                    <button
-                      key={user.id}
-                      type="button"
-                      onClick={() => loginWithUser(user.id)}
-                      className="flex flex-col gap-4 rounded-[26px] border border-[#d7e4fb] bg-white p-4 text-left transition hover:-translate-y-0.5 hover:border-[#2463eb] hover:shadow-[0_16px_35px_rgba(36,99,235,0.12)] sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#0b2a67] to-[#4b8df5] text-sm font-semibold text-white">
-                          {user.initials}
-                        </span>
-                        <div>
-                          <p className="text-base font-semibold text-[#10213c]">{user.name}</p>
-                          <p className="mt-1 text-sm text-[#31538e]">{role.label}</p>
-                          <p className="mt-2 text-xs text-slate-500">{user.email}</p>
-                        </div>
-                      </div>
-                      <div className="sm:text-right">
-                        <p className="text-sm font-medium text-slate-600">{user.status}</p>
-                        <p className="mt-2 text-sm font-semibold text-[#2559b8]">
-                          Quick sign in
-                        </p>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
             <div className="mt-8 rounded-[28px] border border-[#e1e9f8] bg-white p-5">
-              <p className="text-sm font-semibold text-[#10213c]">Prototype note</p>
+              <p className="text-sm font-semibold text-[#10213c]">Account access</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                This login is for presentation and testing only. It supports
-                role-based dashboard views, quick switching, and logout, but it is
-                not production authentication yet.
+                Every sign-in uses the live account endpoint, and each role
+                lands in its own scoped workspace after authentication.
               </p>
               <div className="mt-4">
                 <Link href="/signup" className="button-secondary">

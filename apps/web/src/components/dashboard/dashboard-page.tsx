@@ -20,9 +20,9 @@ import {
   Workflow,
 } from "lucide-react";
 
-import type { DemoUser } from "../../lib/demo-users";
-import { getPlatformUserDetails } from "../../lib/demo-users";
 import { formatScore, startCase } from "../../lib/format";
+import { getPlatformUserDetails } from "../../lib/platform-users";
+import type { SessionUser } from "../../lib/session-user";
 import { selectCurrentUser } from "../../store/auth-slice";
 import { loadDashboard } from "../../store/recruiter-slice";
 import { useAppDispatch, useAppSelector } from "../../store/hooks";
@@ -45,7 +45,7 @@ const emptySummary: DashboardSummary = {
 
 const defaultPlatform: PlatformStatus = {
   repository: "memory",
-  screeningProvider: "mock",
+  screeningProvider: "gemini",
   aiEnabled: false,
   ingestionChannels: [],
 };
@@ -145,7 +145,7 @@ const JobOwnerDashboard = ({
   dashboardStatus,
   error,
 }: {
-  currentUser: DemoUser;
+  currentUser: SessionUser;
   summary: DashboardSummary;
   jobs: DashboardJobSnapshot[];
   platform: PlatformStatus;
@@ -355,7 +355,7 @@ const JobOwnerDashboard = ({
               <p className="mt-3 text-sm leading-6 text-slate-600">
                 {platform.aiEnabled
                   ? `${startCase(platform.screeningProvider)} is active and ready to support shortlist generation.`
-                  : "AI is currently in fallback mode. Enable a live provider when you are ready for production screening."}
+                  : "AI configuration is incomplete right now. Add the required provider settings before running screening."}
               </p>
               <div className="mt-4 flex flex-wrap gap-3">
                 <Link href={getJobWorkspaceHref(featuredJob)} className="button-secondary">
@@ -584,7 +584,7 @@ const JobOwnerDashboard = ({
                 <p className="mt-2 text-sm leading-6 text-slate-600">
                   {platform.repository === "mongo"
                     ? "Mongo persistence is active for a more realistic multi-session experience."
-                    : "The workspace is running in memory mode for demo usage."}
+                    : "The workspace is running in memory mode, so stored data resets when the server restarts."}
                 </p>
               </div>
               <div className="rounded-[24px] border border-[#dbe7ff] bg-[#f8fbff] p-4">
@@ -608,45 +608,57 @@ const JobOwnerDashboard = ({
 
 const AdminDashboard = ({
   currentUser,
+  summary,
+  jobs,
   platform,
   dashboardStatus,
   error,
 }: {
-  currentUser: DemoUser;
+  currentUser: SessionUser;
+  summary: DashboardSummary;
+  jobs: DashboardJobSnapshot[];
   platform: PlatformStatus;
   dashboardStatus: "idle" | "loading" | "succeeded" | "failed";
   error: string | null;
 }) => {
   const role = getPlatformUserDetails("admin");
+  const activeRoles = useMemo(
+    () =>
+      [...jobs]
+        .sort(
+          (left, right) =>
+            new Date(right.job.updatedAt).getTime() -
+            new Date(left.job.updatedAt).getTime()
+        )
+        .slice(0, 4),
+    [jobs]
+  );
   const systemCards = [
     {
-      label: "Repository",
-      value: platform.repository === "mongo" ? "Mongo Atlas" : "Memory Demo",
-      detail: "Persistence layer currently backing the platform",
-      icon: Database,
+      label: "Live Jobs",
+      value: String(summary.totalJobs),
+      detail: "All active roles currently stored on the platform",
+      icon: BriefcaseBusiness,
+    },
+    {
+      label: "Applicants",
+      value: String(summary.totalApplicants),
+      detail: "Total applicants across all job-owner workspaces",
+      icon: Users,
+    },
+    {
+      label: "Screened",
+      value: String(summary.screenedApplicants),
+      detail: "Ranked shortlist results currently generated",
+      icon: Sparkles,
     },
     {
       label: "AI Provider",
       value: startCase(platform.screeningProvider),
       detail: platform.aiEnabled
-        ? "AI screening is enabled and available"
-        : "Provider is configured in fallback mode",
+        ? "Gemini credentials are configured for screening runs"
+        : "Provider configuration still needs attention",
       icon: BrainCircuit,
-    },
-    {
-      label: "AI Status",
-      value: platform.aiEnabled ? "Enabled" : "Fallback",
-      detail: "Admin control over screening availability",
-      icon: Sparkles,
-    },
-    {
-      label: "Ingestion",
-      value:
-        platform.ingestionChannels.length > 0
-          ? `${platform.ingestionChannels.length} channels`
-          : "Not configured",
-      detail: "Resume and profile intake options available",
-      icon: ShieldCheck,
     },
   ];
 
@@ -741,15 +753,30 @@ const AdminDashboard = ({
                 <p className="text-sm font-semibold text-[#5148c8]">Persistence layer</p>
                 <p className="mt-3 text-sm leading-6 text-slate-600">
                   {platform.repository === "mongo"
-                    ? "Mongo persistence is active. Sessions and stored records can survive reloads and support a more realistic operational demo."
-                    : "Memory mode is active. This is useful for demos, but data resets when the server restarts."}
+                    ? "Mongo persistence is active. Sessions and stored records can survive reloads across application restarts."
+                    : "Memory mode is active. Data resets when the server restarts."}
+                </p>
+              </div>
+              <div className="rounded-[24px] border border-[#dddfff] bg-[#f6f7ff] p-5">
+                <p className="text-sm font-semibold text-[#5148c8]">Platform volume</p>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  {summary.totalJobs} jobs, {summary.totalApplicants} applicants,
+                  and {summary.screenedApplicants} shortlist result
+                  {summary.screenedApplicants === 1 ? "" : "s"} are currently
+                  visible at the platform level without exposing candidate identities.
+                </p>
+              </div>
+              <div className="rounded-[24px] border border-[#dddfff] bg-[#f6f7ff] p-5">
+                <p className="text-sm font-semibold text-[#5148c8]">Average shortlist quality</p>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  Current average match score is {formatScore(summary.averageMatchScore)},
+                  which helps admin judge whether the platform is producing usable shortlist signal.
                 </p>
               </div>
               <div className="rounded-[24px] border border-[#dddfff] bg-[#f6f7ff] p-5">
                 <p className="text-sm font-semibold text-[#5148c8]">Current admin view</p>
                 <p className="mt-3 text-sm leading-6 text-slate-600">
-                  Hiring briefs, applicants, and shortlists are intentionally
-                  hidden here so admin accounts do not overlap with job-owner workflows.
+                  Hiring briefs, applicants, and shortlists stay abstracted here so admin can monitor trust, load, and readiness without overlapping with job-owner workflows.
                 </p>
               </div>
             </div>
@@ -764,8 +791,8 @@ const AdminDashboard = ({
                 <p className="mt-3 text-sm leading-6 text-slate-600">
                   {startCase(platform.screeningProvider)} is the current screening provider.
                   {platform.aiEnabled
-                    ? " Live AI analysis is enabled for job-owner shortlisting."
-                    : " The platform is currently using a fallback-safe mode until live AI is enabled."}
+                    ? " Gemini credentials are configured, although quota or billing limits can still block individual runs."
+                    : " Live screening is unavailable until the required provider settings are supplied."}
                 </p>
               </div>
               <div className="rounded-[24px] border border-[#dddfff] bg-[#f6f7ff] p-5">
@@ -786,10 +813,29 @@ const AdminDashboard = ({
             <h3 className="section-title mt-3">What the admin should monitor now</h3>
             <div className="mt-5 grid gap-4">
               <div className="rounded-[24px] border border-[#dddfff] bg-[#f6f7ff] p-4">
-                <p className="text-sm font-semibold text-[#5148c8]">Role isolation</p>
-                <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Admin stays outside job-owner and talent data, which keeps the platform cleaner and more professional.
-                </p>
+                <p className="text-sm font-semibold text-[#5148c8]">Recent role activity</p>
+                {activeRoles.length > 0 ? (
+                  <div className="mt-3 grid gap-3">
+                    {activeRoles.map((snapshot) => (
+                      <div
+                        key={snapshot.job.id}
+                        className="rounded-[18px] border border-white bg-white p-3"
+                      >
+                        <p className="text-sm font-semibold text-[#10213c]">
+                          {snapshot.job.title}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {snapshot.applicantCount} applicants, {snapshot.shortlistCount} shortlisted,
+                          top score {formatScore(snapshot.topMatchScore ?? 0)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    No jobs are active yet, so platform activity is still quiet.
+                  </p>
+                )}
               </div>
               <div className="rounded-[24px] border border-[#dddfff] bg-[#f6f7ff] p-4">
                 <p className="text-sm font-semibold text-[#5148c8]">AI routing</p>
@@ -854,6 +900,8 @@ export const DashboardPage = () => {
     return (
       <AdminDashboard
         currentUser={currentUser}
+        summary={dashboard?.summary ?? emptySummary}
+        jobs={jobs}
         platform={dashboard?.platform ?? defaultPlatform}
         dashboardStatus={dashboardStatus}
         error={error}

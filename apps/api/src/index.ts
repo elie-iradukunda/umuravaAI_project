@@ -1,14 +1,9 @@
 import { env } from "./config/env.js";
 import { createRepository } from "./lib/create-repository.js";
 import { createApp } from "./app.js";
-import { seedDemoData } from "./services/seed.service.js";
 
 const bootstrap = async () => {
   const repository = await createRepository();
-
-  if (env.AUTO_SEED_DEMO) {
-    await seedDemoData(repository);
-  }
 
   const app = createApp(repository);
 

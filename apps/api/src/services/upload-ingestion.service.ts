@@ -22,6 +22,8 @@ export type TalentResumeUploadResult = {
   summaryExcerpt: string;
 };
 
+type NormalizedUploadRow = Record<string, unknown>;
+
 const toString = (value: unknown): string => {
   if (value == null) {
     return "";
@@ -40,11 +42,234 @@ const toNumber = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const toOptionalYear = (value: unknown): number | undefined => {
+  const parsed = toNumber(value);
+
+  if (!parsed) {
+    return undefined;
+  }
+
+  const rounded = Math.trunc(parsed);
+  return rounded >= 1900 && rounded <= 2100 ? rounded : undefined;
+};
+
 const splitList = (value: unknown): string[] =>
   toString(value)
     .split(/[,;|]/)
     .map((item) => item.trim())
     .filter(Boolean);
+
+const splitEntries = (value: unknown): string[] => {
+  const text = toString(value);
+
+  if (!text) {
+    return [];
+  }
+
+  return text
+    .split(/[;\n]+/)
+    .flatMap((entry) => {
+      const trimmedEntry = entry.trim();
+
+      if (!trimmedEntry) {
+        return [];
+      }
+
+      if (trimmedEntry.includes("|")) {
+        return [trimmedEntry];
+      }
+
+      return trimmedEntry
+        .split(/[,]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    });
+};
+
+const normalizeRowKey = (value: string): string =>
+  value
+    .replace(/^\uFEFF/, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
+const normalizeUploadRow = (
+  row: Record<string, unknown>
+): NormalizedUploadRow => {
+  const normalized: NormalizedUploadRow = {};
+
+  Object.entries(row).forEach(([key, value]) => {
+    const normalizedKey = normalizeRowKey(key);
+
+    if (!normalizedKey) {
+      return;
+    }
+
+    const currentValue = normalized[normalizedKey];
+    if (currentValue == null || !toString(currentValue)) {
+      normalized[normalizedKey] = value;
+    }
+  });
+
+  return normalized;
+};
+
+const getRowValue = (
+  row: NormalizedUploadRow,
+  keys: string[]
+): unknown => {
+  for (const key of keys) {
+    if (!(key in row)) {
+      continue;
+    }
+
+    const value = row[key];
+    if (value != null && toString(value)) {
+      return value;
+    }
+  }
+
+  return undefined;
+};
+
+const normalizeUrl = (value: unknown): string => {
+  const text = toString(value);
+
+  if (!text) {
+    return "";
+  }
+
+  const candidate = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+
+  try {
+    return new URL(candidate).toString();
+  } catch {
+    return "";
+  }
+};
+
+const skillLevels = new Set<CreateApplicantInput["skills"][number]["level"]>([
+  "beginner",
+  "intermediate",
+  "advanced",
+  "expert",
+]);
+
+const languageProficiencies = new Set<
+  CreateApplicantInput["languages"][number]["proficiency"]
+>(["basic", "conversational", "fluent", "native"]);
+
+const parseSkillEntries = (
+  value: unknown,
+  fallbackYears: number
+): CreateApplicantInput["skills"] => {
+  const seenNames = new Set<string>();
+
+  return splitEntries(value)
+    .map((entry) => {
+      const [rawName, rawLevel, rawYears] = entry
+        .split("|")
+        .map((item) => item.trim());
+      const name = rawName ?? "";
+
+      if (!name) {
+        return null;
+      }
+
+      const normalizedName = name.toLowerCase();
+      if (seenNames.has(normalizedName)) {
+        return null;
+      }
+
+      seenNames.add(normalizedName);
+
+      const levelCandidate = (rawLevel ?? "").toLowerCase() as CreateApplicantInput["skills"][number]["level"];
+      const yearsOfExperience = rawYears
+        ? toNumber(rawYears)
+        : fallbackYears;
+
+      return {
+        name,
+        level: skillLevels.has(levelCandidate) ? levelCandidate : "intermediate",
+        yearsOfExperience,
+      };
+    })
+    .filter(
+      (
+        skill
+      ): skill is CreateApplicantInput["skills"][number] => Boolean(skill)
+    );
+};
+
+const parseLanguageEntries = (
+  value: unknown
+): CreateApplicantInput["languages"] => {
+  const seenNames = new Set<string>();
+
+  return splitEntries(value)
+    .map((entry) => {
+      const [rawName, rawProficiency] = entry
+        .split("|")
+        .map((item) => item.trim());
+      const name = rawName ?? "";
+
+      if (!name) {
+        return null;
+      }
+
+      const normalizedName = name.toLowerCase();
+      if (seenNames.has(normalizedName)) {
+        return null;
+      }
+
+      seenNames.add(normalizedName);
+
+      const proficiencyCandidate = (
+        rawProficiency ?? ""
+      ).toLowerCase() as CreateApplicantInput["languages"][number]["proficiency"];
+
+      return {
+        name,
+        proficiency: languageProficiencies.has(proficiencyCandidate)
+          ? proficiencyCandidate
+          : "conversational",
+      };
+    })
+    .filter(
+      (
+        language
+      ): language is CreateApplicantInput["languages"][number] => Boolean(language)
+    );
+};
+
+const buildFallbackProfileSummary = (
+  applicant: CreateApplicantInput
+): string => {
+  const detailParts = [
+    applicant.headline
+      ? `${applicant.fullName} is applying as ${applicant.headline}.`
+      : `${applicant.fullName} was imported from an external applicant file.`,
+    applicant.skills.length > 0
+      ? `Key skills include ${applicant.skills
+          .slice(0, 3)
+          .map((skill) => skill.name)
+          .join(", ")}.`
+      : "",
+    applicant.experience[0]?.description ?? "",
+    applicant.resumeText
+      ? applicant.resumeText.replace(/\s+/g, " ").trim().slice(0, 220)
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  if (detailParts.length >= 20) {
+    return detailParts.slice(0, 500);
+  }
+
+  return "Imported applicant profile from an external file. Recruiter review is recommended before AI screening.";
+};
 
 const titleCaseFilename = (filename: string): string =>
   filename
@@ -105,87 +330,137 @@ const buildFallbackPdfApplicant = (
   });
 
 const rowToApplicant = (row: Record<string, unknown>): CreateApplicantInput => {
-  const skillNames = splitList(
-    row.skills ??
-      row.skillset ??
-      row.technologies ??
-      row.competencies ??
-      row.stack
+  const normalizedRow = normalizeUploadRow(row);
+  const educationValues = splitList(
+    getRowValue(normalizedRow, ["education", "degree", "study"])
   );
-  const languageNames = splitList(row.languages ?? row.spokenLanguages);
-  const educationValues = splitList(row.education ?? row.degree ?? row.study);
-  const company = toString(row.company ?? row.employer);
-  const role = toString(row.role ?? row.title ?? row.position);
+  const company = toString(getRowValue(normalizedRow, ["company", "employer"]));
+  const role = toString(
+    getRowValue(normalizedRow, ["role", "title", "position"])
+  );
   const experienceDescription = toString(
-    row.description ?? row.responsibilities ?? row.highlights
+    getRowValue(normalizedRow, [
+      "description",
+      "responsibilities",
+      "highlights",
+    ])
   );
   const experienceTechnologies = splitList(
-    row.technologies ?? row.techStack ?? row.tools
+    getRowValue(normalizedRow, ["technologies", "techstack", "tools"])
   );
 
   const skillYears = toNumber(
-    row.skillYears ?? row.experienceYears ?? row.yearsExperience
+    getRowValue(normalizedRow, [
+      "skillyears",
+      "experienceyears",
+      "yearsexperience",
+    ])
+  );
+
+  const fullName = toString(
+    getRowValue(normalizedRow, ["fullname", "name", "candidate", "applicant"])
+  );
+  const headline = toString(
+    getRowValue(normalizedRow, ["headline", "title", "role"])
+  );
+  const resumeText = toString(
+    getRowValue(normalizedRow, ["resumetext", "notes"])
+  );
+  const skills = parseSkillEntries(
+    getRowValue(normalizedRow, [
+      "skills",
+      "skillset",
+      "technologies",
+      "competencies",
+      "stack",
+    ]),
+    skillYears
+  );
+  const languages = parseLanguageEntries(
+    getRowValue(normalizedRow, ["languages", "spokenlanguages"])
   );
 
   const socialLinks = Object.fromEntries(
     [
-      ["linkedin", toString(row.linkedin)],
-      ["github", toString(row.github)],
-      ["portfolio", toString(row.portfolio)],
+      ["linkedin", normalizeUrl(getRowValue(normalizedRow, ["linkedin"]))],
+      ["github", normalizeUrl(getRowValue(normalizedRow, ["github"]))],
+      ["portfolio", normalizeUrl(getRowValue(normalizedRow, ["portfolio"]))],
     ].filter((entry): entry is [string, string] => Boolean(entry[1]))
   );
 
-  return {
-    fullName: toString(row.fullName ?? row.name ?? row.candidate ?? row.applicant),
-    headline: toString(row.headline ?? row.title ?? row.role),
-    email: toString(row.email),
-    phone: toString(row.phone ?? row.contact),
-    location: toString(row.location ?? row.city ?? row.country ?? "Unknown"),
+  const applicant: CreateApplicantInput = {
+    fullName,
+    headline,
+    email: toString(getRowValue(normalizedRow, ["email"])),
+    phone: toString(getRowValue(normalizedRow, ["phone", "contact"])),
+    location:
+      toString(
+        getRowValue(normalizedRow, ["location", "city", "country"])
+      ) || "Unknown",
     source: "csv",
-    resumeUrl: toString(row.resumeUrl ?? row.resume ?? row.profileUrl),
-    resumeText: toString(row.resumeText ?? row.notes),
+    resumeUrl: normalizeUrl(
+      getRowValue(normalizedRow, ["resumeurl", "resume", "profileurl"])
+    ),
+    resumeText,
     profileSummary: toString(
-      row.profileSummary ?? row.summary ?? row.bio ?? row.about ?? row.headline
+      getRowValue(normalizedRow, [
+        "profilesummary",
+        "summary",
+        "bio",
+        "about",
+        "headline",
+      ])
     ),
     totalExperienceYears: toNumber(
-      row.totalExperienceYears ?? row.experienceYears ?? row.yearsExperience
+      getRowValue(normalizedRow, [
+        "totalexperienceyears",
+        "experienceyears",
+        "yearsexperience",
+      ])
     ),
     education:
-      toString(row.institution ?? row.school) || educationValues.length > 0
+      toString(getRowValue(normalizedRow, ["institution", "school"])) ||
+      educationValues.length > 0
         ? [
             {
-              institution: toString(row.institution ?? row.school ?? "Not Provided"),
-              degree: toString(row.degree ?? educationValues[0] ?? "Not Provided"),
+              institution:
+                toString(
+                  getRowValue(normalizedRow, ["institution", "school"])
+                ) || "Not Provided",
+              degree:
+                toString(getRowValue(normalizedRow, ["degree"])) ||
+                educationValues[0] ||
+                "Not Provided",
               fieldOfStudy: toString(
-                row.fieldOfStudy ?? row.study ?? educationValues[0] ?? "Not Provided"
+                getRowValue(normalizedRow, ["fieldofstudy", "study"])
               ),
-              startYear: toNumber(toString(row.startYear)) ?? undefined,
-              endYear: toNumber(
-                toString(row.endYear ?? row.yearCompleted)
-              ) ?? undefined,
+              startYear: toOptionalYear(
+                getRowValue(normalizedRow, ["startyear"])
+              ),
+              endYear: toOptionalYear(
+                getRowValue(normalizedRow, ["endyear", "yearcompleted"])
+              ),
             },
           ]
         : [],
-    skills: skillNames.map((name) => ({
-      name,
-      level: "intermediate",
-      yearsOfExperience: skillYears,
-    })),
-    languages: languageNames.map((name) => ({
-      name,
-      proficiency: "conversational",
-    })),
+    skills,
+    languages,
     experience:
       company || role || experienceDescription
         ? [
             {
               company: company || "Not Provided",
               role: role || "Not Provided",
-              startDate: toString(row.startDate ?? row.from ?? ""),
-              endDate: toString(row.endDate ?? row.to ?? ""),
+              startDate:
+                toString(
+                  getRowValue(normalizedRow, ["startdate", "from"])
+                ) || "Unknown",
+              endDate: toString(getRowValue(normalizedRow, ["enddate", "to"])),
               description: experienceDescription || "Imported from spreadsheet row.",
               technologies: experienceTechnologies,
-              isCurrent: toString(row.isCurrent).toLowerCase() === "true",
+              isCurrent:
+                toString(getRowValue(normalizedRow, ["iscurrent"])).toLowerCase() ===
+                "true",
             },
           ]
         : [],
@@ -197,8 +472,21 @@ const rowToApplicant = (row: Record<string, unknown>): CreateApplicantInput => {
       startDate: "",
     },
     socialLinks,
-    tags: splitList(row.tags ?? row.labels),
+    tags: splitList(getRowValue(normalizedRow, ["tags", "labels"])),
   };
+
+  if (!applicant.profileSummary) {
+    applicant.profileSummary = buildFallbackProfileSummary(applicant);
+  }
+
+  if (!applicant.education[0]?.fieldOfStudy) {
+    applicant.education = applicant.education.map((item) => ({
+      ...item,
+      fieldOfStudy: item.fieldOfStudy || educationValues[0] || "Not Provided",
+    }));
+  }
+
+  return applicant;
 };
 
 const normalizeApplicant = (
@@ -285,6 +573,7 @@ export const parseApplicantUploads = async (
 
     if (extension === ".csv") {
       const rows = parseCsv(file.buffer, {
+        bom: true,
         columns: true,
         skip_empty_lines: true,
         trim: true,

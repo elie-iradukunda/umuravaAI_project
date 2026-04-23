@@ -19,6 +19,7 @@ import {
 
 type TalentProfileFieldsProps = {
   form: UseFormReturn<TalentProfileValues>;
+  userId: string;
 };
 
 type SectionHeaderProps = {
@@ -46,7 +47,10 @@ const SectionHeader = ({
   </div>
 );
 
-export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
+export const TalentProfileFields = ({
+  form,
+  userId,
+}: TalentProfileFieldsProps) => {
   const { control, register, setValue, watch } = form;
   const [resumeFile, setResumeFile] = useState<File | null>(null);
   const [quickSkillText, setQuickSkillText] = useState("");
@@ -112,7 +116,7 @@ export const TalentProfileFields = ({ form }: TalentProfileFieldsProps) => {
     setResumeUploadError("");
 
     try {
-      const result = await api.uploadTalentResume(resumeFile);
+      const result = await api.uploadTalentResume(userId, resumeFile);
       setValue("resumeFileName", result.fileName, { shouldDirty: true });
       setValue("resumeText", result.resumeText, { shouldDirty: true });
       setIsResumeTextVisible(true);
